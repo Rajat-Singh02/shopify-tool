@@ -32,3 +32,11 @@ export function parseShopifyScopes(scopes: string): string[] {
     .map((scope) => scope.trim())
     .filter(Boolean);
 }
+
+export {
+  ShopifyWebhookTopic,
+  createWebhookPayloadHash,
+  isAppUninstalledTopic,
+  normalizeShopifyWebhookTopic,
+  type ShopifyWebhookTopic as ShopifyWebhookTopicValue,
+} from "./webhooks";

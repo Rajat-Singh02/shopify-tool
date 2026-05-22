@@ -69,4 +69,7 @@ export const authenticate = {
   admin(request: Request) {
     return getShopifyServer().authenticate.admin(request);
   },
+  webhook(request: Request) {
+    return getShopifyServer().authenticate.webhook(request);
+  },
 };
