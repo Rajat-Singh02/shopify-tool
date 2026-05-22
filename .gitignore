@@ -12,3 +12,7 @@ test-results
 !.env.example
 packages/db/prisma/migrations/dev.db*
 storage
+# Local/editor/system metadata
+.DS_Store
+.specstory/
+.cursorindexingignore
