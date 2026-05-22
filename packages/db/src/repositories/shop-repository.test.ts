@@ -19,26 +19,56 @@ function createShop(overrides: Partial<ShopRecord> = {}): ShopRecord {
 function createClient(existingShop: ShopRecord | null): {
   client: ShopRepositoryClient;
   created: ShopRecord[];
+  upsertCreatedData: Array<{
+    id: string;
+    shopDomain: string;
+    installedAt: Date;
+    uninstalledAt: null;
+    createdAt: Date;
+    updatedAt: Date;
+  }>;
   updated: ShopRecord[];
 } {
   const created: ShopRecord[] = [];
+  const upsertCreatedData: Array<{
+    id: string;
+    shopDomain: string;
+    installedAt: Date;
+    uninstalledAt: null;
+    createdAt: Date;
+    updatedAt: Date;
+  }> = [];
   const updated: ShopRecord[] = [];
 
   return {
     created,
+    upsertCreatedData,
     updated,
     client: {
       shop: {
         findUnique() {
           return Promise.resolve(existingShop);
         },
-        create({ data }) {
+        upsert({ create, update }) {
+          if (existingShop) {
+            const shop = createShop({
+              ...existingShop,
+              uninstalledAt: update.uninstalledAt,
+              updatedAt: update.updatedAt,
+            });
+            updated.push(shop);
+            return Promise.resolve(shop);
+          }
+
           const shop = createShop({
-            id: "created_shop",
-            shopDomain: data.shopDomain,
-            installedAt: data.installedAt,
-            uninstalledAt: data.uninstalledAt ?? null,
+            id: create.id,
+            shopDomain: create.shopDomain,
+            installedAt: create.installedAt,
+            uninstalledAt: create.uninstalledAt,
+            createdAt: create.createdAt,
+            updatedAt: create.updatedAt,
           });
+          upsertCreatedData.push(create);
           created.push(shop);
           return Promise.resolve(shop);
         },
@@ -58,13 +88,22 @@ function createClient(existingShop: ShopRecord | null): {
 
 describe("ShopRepository", () => {
   it("creates a shop when it is missing", async () => {
-    const { client, created } = createClient(null);
+    const { client, created, upsertCreatedData } = createClient(null);
     const repository = new ShopRepository(client);
 
     const shop = await repository.ensureInstalled("Test-Shop.myshopify.com");
 
     expect(shop.shopDomain).toBe("test-shop.myshopify.com");
     expect(created).toHaveLength(1);
+    expect(upsertCreatedData[0]).toMatchObject({
+      shopDomain: "test-shop.myshopify.com",
+      installedAt: expect.any(Date) as Date,
+      uninstalledAt: null,
+      createdAt: expect.any(Date) as Date,
+      updatedAt: expect.any(Date) as Date,
+    });
+    expect(upsertCreatedData[0]?.id).toEqual(expect.any(String));
+    expect(upsertCreatedData[0]?.id).not.toHaveLength(0);
   });
 
   it("returns an existing installed shop", async () => {
@@ -74,8 +113,9 @@ describe("ShopRepository", () => {
 
     const shop = await repository.ensureInstalled(existingShop.shopDomain);
 
-    expect(shop).toBe(existingShop);
-    expect(updated).toHaveLength(0);
+    expect(shop.shopDomain).toBe(existingShop.shopDomain);
+    expect(updated).toHaveLength(1);
+    expect(updated[0]?.uninstalledAt).toBeNull();
   });
 
   it("clears uninstalledAt when a shop reinstalls", async () => {
