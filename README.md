@@ -7,5 +7,6 @@ Feature 0 provides the project foundation, shared packages, Prisma schema, Polar
 Deployment documentation:
 
 - [Vercel deployment foundation](docs/deployment/vercel.md)
+- [Shopify config for Vercel environments](docs/shopify-config.md)
 - [Branching model](docs/branching.md)
 - [Pull request process](docs/pr-process.md)
