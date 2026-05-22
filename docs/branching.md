@@ -57,6 +57,12 @@ Preferred flow:
 
 Do not create a long-lived branch named `feature`.
 
+## Current Default Branch Note
+
+GitHub currently has `main` as the default branch. The active integration branch for this project is still `dev`, and production promotion should still go through `prod`.
+
+Do not merge `dev` to `main` unless the branch model changes. After open PRs are clear, a repository administration task should change the GitHub default branch from `main` to `dev`.
+
 ## Scope Discipline
 
 Keep PRs small and reviewable. Do not combine infrastructure, backend feature work, frontend feature work, and deployment changes unless the PR is explicitly scoped as a full-stack slice.

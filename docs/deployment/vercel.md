@@ -2,7 +2,9 @@
 
 This app deploys to Vercel. Do not use tunneling URLs for Shopify development, preview, or production setup.
 
-Feature 0 is a static admin shell and health route foundation. Shopify OAuth, authenticated app routes, webhooks, video upload, processing, widgets, and analytics are intentionally deferred to later PRs.
+The current Vercel configuration serves the static Vite admin shell only. Shopify OAuth/session code, authenticated admin route handlers, and webhook handlers exist in the repository, but they are not deployed by the current `vercel.json`.
+
+See [Feature 1 auth lifecycle release gate](../releases/feature-1-auth-lifecycle.md) before testing Shopify install/auth or webhooks on Vercel.
 
 ## Project Setup
 
@@ -20,6 +22,30 @@ Feature 0 is a static admin shell and health route foundation. Shopify OAuth, au
 6. Allow Preview deployments for `dev`, `backend`, `frontend`, and `feature/*` branches.
 
 The repository includes `vercel.json` for the current static build output. Do not add secrets or branch-specific Shopify URLs to `vercel.json`.
+
+## Current Runtime Status
+
+Current `vercel.json`:
+
+```json
+{
+  "installCommand": "npm ci",
+  "buildCommand": "npm run build",
+  "outputDirectory": "apps/shopify-app/dist/client",
+  "framework": "vite"
+}
+```
+
+This config deploys only `apps/shopify-app/dist/client`.
+
+| Route or flow | Current Vercel status |
+| --- | --- |
+| `/` admin shell | Served as static Vite output |
+| `/api/admin/dashboard` | Not deployed; handler utility exists only in source/build output |
+| `/webhooks` | Not deployed; handler utility exists only in source/build output |
+| `/auth/*` Shopify auth/callback/session routes | Not deployed by current Vercel config |
+
+Feature 1 is blocked from production readiness until a follow-up PR adds a Vercel server runtime for Shopify auth, admin data routes, and raw-body webhook handling.
 
 ## Branch Mapping
 
@@ -100,9 +126,9 @@ Shopify app configuration requires matching URLs:
 
 - Application URL: `${SHOPIFY_APP_URL}`
 - OAuth redirect URL: `${SHOPIFY_APP_URL}/auth/callback`
-- Webhook URL: `${SHOPIFY_APP_URL}/webhooks` once webhooks are implemented
+- Webhook URL: `${SHOPIFY_APP_URL}/webhooks` once webhooks are implemented and deployed
 
-OAuth runtime wiring is deferred to Feature 1, so these URLs document the required shape without implementing auth in this PR.
+Feature 1 added auth/webhook handler utilities, but current Vercel deployment remains static-only. Do not use Vercel for real Shopify install/auth QA until PR 1E fixes the server runtime.
 
 ## Database and Prisma
 
