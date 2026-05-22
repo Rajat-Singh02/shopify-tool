@@ -48,9 +48,11 @@ Every PR should include:
 
 Merge feature branches into their target lane after CI passes and review is complete. Promote stable lane branches forward with separate PRs:
 
-- `backend` -> `dev`
-- `frontend` -> `dev`
-- `dev` -> `prod`
+- `backend` -> `main`
+- `frontend` -> `main`
+- `main` -> `prod`
+
+`dev` is a legacy branch and should not receive new PRs.
 
 Do not force-push protected branches.
 

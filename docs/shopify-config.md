@@ -2,7 +2,7 @@
 
 This project uses Vercel for deployed development, preview, and production testing. Do not use tunnel URLs for Shopify app configuration.
 
-Feature 1 added auth/session, webhook, and authenticated admin shell foundations. The current Vercel deployment is still static-only, so real Shopify install/auth and webhook QA is blocked until a server runtime PR lands.
+Shopify auth and webhook routes are served on Vercel through the Node serverless runtime defined in `api/[...path].ts`.
 
 ## Config Files
 
@@ -23,13 +23,13 @@ Use stable Vercel domains or custom domains for Shopify application URLs.
 | Shopify use case | Branch or Vercel environment | URL strategy |
 | --- | --- | --- |
 | Production app | `prod` | Vercel Production URL or production custom domain |
-| Development/test app | `dev` | Stable Vercel preview/dev URL or dev custom domain |
+| Development/test app | `main` | Stable Vercel preview/dev URL or dev custom domain |
 | Backend/frontend validation | `backend`, `frontend` | Stable preview URL if OAuth testing is needed |
 | Feature branch UI review | `feature/*` | Preview URL for visual review, not random OAuth callback configuration |
 
 Random Vercel preview deployment URLs are poor OAuth callback targets because each deployment gets a different hostname. Shopify OAuth redirect URLs must match exactly, so changing preview URLs creates noisy Partner Dashboard updates and callback failures.
 
-Prefer one stable dev/test Shopify app mapped to one stable dev/test Vercel domain for OAuth and webhook testing.
+Prefer one stable dev/test Shopify app mapped to one stable `main` preview/dev Vercel domain for OAuth and webhook testing.
 
 ## Partner Dashboard Values
 
@@ -46,7 +46,7 @@ Required values:
 Production and development should usually be separate Shopify apps:
 
 - Production Shopify app -> Vercel Production URL/custom production domain -> `prod`.
-- Development Shopify app -> stable Vercel dev/preview URL/custom dev domain -> `dev`.
+- Development Shopify app -> stable Vercel dev/preview URL/custom dev domain -> `main`.
 
 Set matching Vercel environment variables:
 
@@ -63,7 +63,7 @@ Do not commit real values for API keys or secrets.
 
 ## Redirect URLs
 
-Feature 1 uses Shopify React Router auth helpers with `/auth` as the auth path prefix in server code. Redirect URLs must match the deployed server runtime once it exists.
+The Shopify auth path prefix is `/auth`.
 
 Expected redirect URL patterns:
 
@@ -72,7 +72,7 @@ https://<app-domain>/auth/callback
 https://<app-domain>/api/auth/callback
 ```
 
-Only keep redirect URLs that are actually implemented and used by the deployed server runtime. The current `shopify.app.toml` placeholder uses `/auth/callback`, but the current Vercel config does not deploy that runtime route.
+Only keep redirect URLs that are actually implemented and used. The Vercel runtime rewrites `/auth/*` to the serverless function while preserving the Shopify auth path prefix for the Shopify auth helper.
 
 ## App URL
 
@@ -103,7 +103,7 @@ Do not add social integration scopes. Meta, Instagram, TikTok, Facebook, social 
 
 ## Webhooks
 
-Feature 1B added webhook handler code.
+The lifecycle webhook handler runs through the Vercel serverless runtime.
 
 Expected lifecycle webhook:
 
@@ -111,7 +111,7 @@ Expected lifecycle webhook:
 app/uninstalled -> https://<app-domain>/webhooks
 ```
 
-The current `shopify.app.toml` reserves the `app/uninstalled` subscription shape, and the codebase contains HMAC verification and idempotent processing. The current Vercel config does not deploy `/webhooks`, so deployed Shopify webhook QA is blocked until the Vercel server runtime follow-up.
+The current `shopify.app.toml` reserves the `app/uninstalled` subscription shape. Runtime HMAC verification and idempotent processing are implemented by the `/webhooks` route.
 
 ## Environment Checklist
 

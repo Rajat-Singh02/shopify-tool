@@ -4,13 +4,13 @@ Feature 1 covers Shopify auth/session foundation, app lifecycle webhooks, and th
 
 ## Current Gate
 
-Feature 1 is not production-ready on Vercel until a server runtime is deployed for Shopify auth, admin data, and webhooks. Complete the runtime follow-up before marking this checklist passed end to end.
+Feature 1 has a Vercel server runtime path for Shopify auth, admin data, and webhooks. Production readiness still requires this checklist to pass against a real Vercel deployment and Shopify development store.
 
 ## 1. Vercel Setup
 
 - Confirm the Vercel project is connected to this GitHub repository.
 - Confirm Vercel Production is connected to `prod`, not `main`.
-- Confirm Vercel Preview is enabled for `dev`.
+- Confirm Vercel Preview is enabled for `main`, `backend`, `frontend`, and `feature/*`.
 - Confirm `APP_URL` and `SHOPIFY_APP_URL` match the stable Vercel URL being tested.
 - Confirm `DATABASE_URL` points to the intended managed Postgres database.
 - Confirm secrets are configured only in the Vercel dashboard and are not committed.

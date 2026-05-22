@@ -4,49 +4,21 @@ Feature 1 includes the Shopify auth/session foundation, app lifecycle webhook fo
 
 ## Runtime Verdict
 
-Feature 1 is not production-ready on Vercel yet.
+Feature 1 now has a Vercel server runtime path for Shopify auth, admin dashboard data, and lifecycle webhooks.
 
-The current `vercel.json` deploys only the static Vite client output:
+The deployment uses two Vercel outputs:
 
-```json
-{
-  "installCommand": "npm ci",
-  "buildCommand": "npm run build",
-  "outputDirectory": "apps/shopify-app/dist/client",
-  "framework": "vite"
-}
-```
-
-That configuration serves the frontend shell from `apps/shopify-app/dist/client`. It does not deploy a Node/server runtime for Shopify auth, admin data routes, or webhooks.
+- Static client output from `apps/shopify-app/dist/client`.
+- Node serverless runtime through `api/[...path].ts`, delegated to `apps/shopify-app/server/vercel-runtime.ts`.
 
 ## Current Route Coverage
 
 | Route or flow | Current code exists | Deployed by current Vercel config | Current verdict |
 | --- | --- | --- | --- |
 | `/` admin shell | Yes | Yes, static Vite output | Available, but backend context may fall back to safe error |
-| `/api/admin/dashboard` | Handler utility exists in `apps/shopify-app/routes/app.server.ts` | No | Blocked until server runtime exists |
-| `/webhooks` | Handler utility exists in `apps/shopify-app/routes/webhooks.ts` | No | Blocked until server runtime exists |
-| `/auth/*` and Shopify callback/session routes | Shopify React Router auth helper exists | No concrete deployed route | Blocked until server runtime exists |
-
-## Required Runtime Follow-Up
-
-Create a follow-up PR:
-
-```txt
-PR 1E: fix Vercel server runtime for Shopify auth/webhooks
-```
-
-That PR should define the Vercel server runtime strategy before Feature 1 can be declared complete for deployed Shopify testing.
-
-Minimum expected outcomes for PR 1E:
-
-- Vercel has a Node runtime entry or framework adapter that serves Shopify auth routes.
-- `/api/admin/dashboard` is routed to the authenticated admin dashboard handler.
-- `/webhooks` is routed to the raw-body Shopify webhook handler.
-- Raw request bodies remain available for webhook HMAC verification.
-- Server code can access `DATABASE_URL`, Shopify secrets, and session storage only on the backend.
-- The Vercel build output and route config are documented.
-- A deployed preview can prove backend route availability, not only frontend fallback rendering.
+| `/api/admin/dashboard` | Yes | Yes, serverless runtime | Available for authenticated admin dashboard data |
+| `/webhooks` | Yes | Yes, rewritten to `/api/webhooks` serverless runtime | Available for raw-body Shopify webhook handling |
+| `/auth/*` and Shopify callback/session routes | Yes | Yes, rewritten to `/api/auth/*` serverless runtime | Available for Shopify admin auth helper |
 
 Do not use a tunnel URL for this work.
 
@@ -62,28 +34,28 @@ Current automated tests cover:
 - Valid and invalid Shopify webhook authentication.
 - Webhook idempotency for duplicate deliveries.
 - `app/uninstalled` lifecycle handling.
+- Vercel runtime route surface for auth, health, dashboard data, and webhooks.
 - E2E frontend shell fallback when backend context is unavailable.
 - E2E frontend rendering when admin dashboard data is mocked as available.
 
-These tests do not prove a real Vercel deployment can receive Shopify callbacks or webhooks. That must be proven after PR 1E.
+These tests do not prove a real Vercel deployment can receive Shopify callbacks or webhooks from a Shopify development store. That must be proven through the Feature 1 manual QA checklist.
 
 ## Branch Note
 
-GitHub currently uses `main` as the default branch. The intended active model remains:
+GitHub currently uses `main` as the default branch. The active branch model is:
 
-- `dev` for integration.
+- `main` for integration.
 - `backend` for backend lane work.
 - `frontend` for frontend lane work.
 - `prod` for production.
-- `main` as a legacy/default branch for now.
+- `dev` as a legacy branch that should not receive new PRs.
 
-Do not merge `dev` to `main` going forward unless the branch model changes. A later repository administration task should change GitHub's default branch to `dev` after open PRs are clear.
+Production promotion should flow from `main` to `prod` only when release-ready.
 
 ## Release Decision
 
 Feature 1 should not be marked production-ready until:
 
-- PR 1E lands.
 - The Feature 1 manual QA checklist passes against a Vercel preview.
 - Shopify install/auth works from the configured Vercel URL.
 - `app/uninstalled` is delivered to Vercel and updates `Shop.uninstalledAt`.

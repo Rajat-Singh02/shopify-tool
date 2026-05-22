@@ -17,9 +17,9 @@ Recommended protections:
 - Block force pushes.
 - Block direct pushes where permissions allow.
 
-### `dev`
+### `main`
 
-Main integration branch. Completed work lands here before promotion to `prod`.
+Default integration branch. Completed lane work lands here before promotion to `prod`.
 
 Recommended protections:
 
@@ -29,7 +29,7 @@ Recommended protections:
 
 ### `backend`
 
-Backend integration lane for backend-heavy work before it is promoted to `dev`.
+Backend integration lane for backend-heavy work before it is promoted to `main`.
 
 Recommended protections:
 
@@ -38,12 +38,18 @@ Recommended protections:
 
 ### `frontend`
 
-Frontend integration lane for frontend-heavy work before it is promoted to `dev`.
+Frontend integration lane for frontend-heavy work before it is promoted to `main`.
 
 Recommended protections:
 
 - Require passing CI.
 - Prefer squash merge.
+
+### `dev`
+
+Legacy integration branch. Do not target new PRs here.
+
+Keep this branch temporarily for repository history and transition safety. It should not receive new feature, lane, or release-promotion work.
 
 ## Short-Lived Branches
 
@@ -51,17 +57,17 @@ All implementation work must happen on short-lived `feature/*` branches.
 
 Preferred flow:
 
-- Backend-heavy work: `feature/<small-task>` -> `backend` -> `dev` -> `prod`
-- Frontend-heavy work: `feature/<small-task>` -> `frontend` -> `dev` -> `prod`
-- Cross-cutting infrastructure or full-stack slices: `feature/<small-task>` -> `dev` -> `prod`
+- Backend-heavy work: `feature/<small-task>` -> `backend` -> `main` -> `prod`
+- Frontend-heavy work: `feature/<small-task>` -> `frontend` -> `main` -> `prod`
+- Cross-cutting infrastructure, test, deployment, or full-stack slices: `feature/<small-task>` -> `main` -> `prod`
 
 Do not create a long-lived branch named `feature`.
 
 ## Current Default Branch Note
 
-GitHub currently has `main` as the default branch. The active integration branch for this project is still `dev`, and production promotion should still go through `prod`.
+GitHub currently has `main` as the default branch. The active integration branch for this project is `main`, and production promotion should go through `prod`.
 
-Do not merge `dev` to `main` unless the branch model changes. After open PRs are clear, a repository administration task should change the GitHub default branch from `main` to `dev`.
+The `dev` branch may exist temporarily as a legacy branch, but it should not receive new PRs or release-promotion work.
 
 ## Scope Discipline
 

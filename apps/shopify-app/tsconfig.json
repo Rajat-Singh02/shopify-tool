@@ -8,7 +8,7 @@
     "rootDir": ".",
     "types": ["vite/client", "vitest/globals", "@testing-library/jest-dom"]
   },
-  "include": ["app", "routes", "components", "services", "lib", "test", "vite.config.ts"],
+  "include": ["app", "routes", "components", "services", "server", "lib", "test", "vite.config.ts"],
   "references": [
     { "path": "../../packages/db" },
     { "path": "../../packages/shared" },
