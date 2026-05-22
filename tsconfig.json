@@ -1,6 +1,7 @@
 {
   "files": [],
   "references": [
+    { "path": "api" },
     { "path": "apps/shopify-app" },
     { "path": "packages/db" },
     { "path": "packages/shared" },

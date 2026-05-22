@@ -7,6 +7,7 @@
     "types": ["node", "vitest/globals", "@testing-library/jest-dom"]
   },
   "include": [
+    "api/**/*.ts",
     "apps/**/*.ts",
     "apps/**/*.tsx",
     "packages/**/*.ts",
