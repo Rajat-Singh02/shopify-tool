@@ -1,6 +1,6 @@
 name = "Shoppable Video"
 client_id = "507ec4018317a9c292eed04878307f58"
-application_url = "https://shopify-tool-2xse171x6-rajat-sahadev-s-projects.vercel.app"
+application_url = "https://shopify-tool-git-main-rajat-sahadev-s-projects.vercel.app"
 embedded = true
 
 [build]
@@ -9,7 +9,7 @@ dev_store_url = ""
 
 [auth]
 redirect_urls = [
-  "https://shopify-tool-2xse171x6-rajat-sahadev-s-projects.vercel.app/auth/callback"
+  "https://shopify-tool-git-main-rajat-sahadev-s-projects.vercel.app/auth/callback"
 ]
 
 [webhooks]
