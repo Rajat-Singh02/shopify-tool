@@ -11,8 +11,8 @@ The Vite client is served as static output, and Shopify backend surfaces are ser
 3. Use the existing install and build commands:
 
    ```sh
-   npm ci
-   npm run build
+   npm ci --include=dev
+   npm run vercel:build
    ```
 
 4. Use `apps/shopify-app/dist/client` as the output directory.
@@ -20,6 +20,14 @@ The Vite client is served as static output, and Shopify backend surfaces are ser
 6. Allow Preview deployments for `main`, `backend`, `frontend`, and `feature/*` branches.
 
 The repository includes `vercel.json` for the static client output plus serverless route rewrites. Do not add secrets or branch-specific Shopify URLs to `vercel.json`.
+
+Vercel installs dev dependencies because TypeScript, Vite, Prisma CLI, and test type definitions are build-time dependencies in this monorepo. The Vercel build command runs Prisma client generation before package builds:
+
+```sh
+npm run db:generate && npm run build
+```
+
+The root `build` script builds workspace packages in dependency order before the Shopify app so fresh Vercel clones do not require pre-existing package `dist` output.
 
 ## Runtime Routing
 
@@ -130,7 +138,7 @@ The Vercel runtime must have access to the Shopify API secret, session secret, a
 
 Use managed Postgres for Preview and Production. `DATABASE_URL` must point at the correct database for each Vercel environment.
 
-Prisma uses `prisma.config.ts` and `packages/db/prisma/schema.prisma`. The current CI generates the Prisma client before checks. Vercel builds use the existing root build command, and Vercel compiles the serverless runtime from `api/[...path].ts`.
+Prisma uses `prisma.config.ts` and `packages/db/prisma/schema.prisma`. The current CI generates the Prisma client before checks. Vercel builds run `npm run vercel:build`, which generates the Prisma client before the TypeScript package builds, and Vercel compiles the serverless runtime from `api/[...path].ts`.
 
 Do not run destructive migrations automatically from Vercel builds. Migration strategy should be documented separately before production launch.
 
