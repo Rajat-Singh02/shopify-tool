@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import { ShopDomainSchema } from "@shoppable-video/shared";
 
 export type ShopRecord = {
@@ -12,11 +14,19 @@ export type ShopRecord = {
 export type ShopRepositoryClient = {
   shop: {
     findUnique(args: { where: { shopDomain: string } }): Promise<ShopRecord | null>;
-    create(args: {
-      data: {
+    upsert(args: {
+      where: { shopDomain: string };
+      create: {
+        id: string;
         shopDomain: string;
-        installedAt?: Date;
-        uninstalledAt?: null;
+        installedAt: Date;
+        uninstalledAt: null;
+        createdAt: Date;
+        updatedAt: Date;
+      };
+      update: {
+        uninstalledAt: null;
+        updatedAt: Date;
       };
     }): Promise<ShopRecord>;
     update(args: {
@@ -40,29 +50,22 @@ export class ShopRepository {
 
   async ensureInstalled(shopDomain: string, installedAt = new Date()): Promise<ShopRecord> {
     const normalizedShopDomain = ShopDomainSchema.parse(shopDomain);
-    const existing = await this.findByDomain(normalizedShopDomain);
 
-    if (!existing) {
-      return this.client.shop.create({
-        data: {
-          shopDomain: normalizedShopDomain,
-          installedAt,
-          uninstalledAt: null,
-        },
-      });
-    }
-
-    if (existing.uninstalledAt) {
-      return this.client.shop.update({
-        where: { shopDomain: normalizedShopDomain },
-        data: {
-          installedAt,
-          uninstalledAt: null,
-        },
-      });
-    }
-
-    return existing;
+    return this.client.shop.upsert({
+      where: { shopDomain: normalizedShopDomain },
+      create: {
+        id: randomUUID(),
+        shopDomain: normalizedShopDomain,
+        installedAt,
+        uninstalledAt: null,
+        createdAt: installedAt,
+        updatedAt: installedAt,
+      },
+      update: {
+        uninstalledAt: null,
+        updatedAt: new Date(),
+      },
+    });
   }
 
   async markUninstalled(shopDomain: string, uninstalledAt = new Date()): Promise<ShopRecord | null> {
