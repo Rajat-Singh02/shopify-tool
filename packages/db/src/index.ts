@@ -17,17 +17,21 @@ export function assertShopScope(context: RepositoryContext): string {
   return context.shopId;
 }
 
-export { createPrismaClient, getPrismaClient } from "./prisma";
-export { ShopRepository, type ShopRecord, type ShopRepositoryClient } from "./repositories/shop-repository";
+export { createPrismaClient, getPrismaClient } from "./prisma.js";
+export {
+  ShopRepository,
+  type ShopRecord,
+  type ShopRepositoryClient,
+} from "./repositories/shop-repository.js";
 export {
   WebhookDeliveryRepository,
   type RecordWebhookDeliveryInput,
   type RecordWebhookDeliveryResult,
   type WebhookDeliveryRecord,
   type WebhookDeliveryRepositoryClient,
-} from "./repositories/webhook-delivery-repository";
+} from "./repositories/webhook-delivery-repository.js";
 export {
   PrismaShopifySessionStorage,
   type ShopifySessionRecord,
   type ShopifySessionStorageClient,
-} from "./shopify-session-storage";
+} from "./shopify-session-storage.js";
