@@ -2,7 +2,7 @@
 
 This project uses Vercel for deployed development, preview, and production testing. Do not use tunnel URLs for Shopify app configuration.
 
-OAuth runtime wiring is deferred to Feature 1. This document defines the URL, scope, and environment strategy that Feature 1 must follow.
+Feature 1 added auth/session, webhook, and authenticated admin shell foundations. The current Vercel deployment is still static-only, so real Shopify install/auth and webhook QA is blocked until a server runtime PR lands.
 
 ## Config Files
 
@@ -63,7 +63,7 @@ Do not commit real values for API keys or secrets.
 
 ## Redirect URLs
 
-Feature 1 will decide the final OAuth route shape. Until then, configure redirect URLs according to the implemented auth route.
+Feature 1 uses Shopify React Router auth helpers with `/auth` as the auth path prefix in server code. Redirect URLs must match the deployed server runtime once it exists.
 
 Expected redirect URL patterns:
 
@@ -72,7 +72,7 @@ https://<app-domain>/auth/callback
 https://<app-domain>/api/auth/callback
 ```
 
-Only keep redirect URLs that are actually implemented and used. The current `shopify.app.toml` placeholder uses `/auth/callback` because OAuth runtime routes are not implemented yet.
+Only keep redirect URLs that are actually implemented and used by the deployed server runtime. The current `shopify.app.toml` placeholder uses `/auth/callback`, but the current Vercel config does not deploy that runtime route.
 
 ## App URL
 
@@ -103,7 +103,7 @@ Do not add social integration scopes. Meta, Instagram, TikTok, Facebook, social 
 
 ## Webhooks
 
-Feature 1B will implement webhook runtime handling.
+Feature 1B added webhook handler code.
 
 Expected lifecycle webhook:
 
@@ -111,7 +111,7 @@ Expected lifecycle webhook:
 app/uninstalled -> https://<app-domain>/webhooks
 ```
 
-The current `shopify.app.toml` reserves the `app/uninstalled` subscription shape, but runtime HMAC verification and idempotent processing are deferred to Feature 1B.
+The current `shopify.app.toml` reserves the `app/uninstalled` subscription shape, and the codebase contains HMAC verification and idempotent processing. The current Vercel config does not deploy `/webhooks`, so deployed Shopify webhook QA is blocked until the Vercel server runtime follow-up.
 
 ## Environment Checklist
 
