@@ -1,0 +1,21 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "installCommand": "npm ci",
+  "buildCommand": "npm run build",
+  "outputDirectory": "apps/shopify-app/dist/client",
+  "framework": "vite",
+  "rewrites": [
+    {
+      "source": "/webhooks",
+      "destination": "/api/webhooks"
+    },
+    {
+      "source": "/auth/:path*",
+      "destination": "/api/auth/:path*"
+    },
+    {
+      "source": "/health",
+      "destination": "/api/health"
+    }
+  ]
+}

@@ -1,6 +1,4 @@
-export type DashboardOverview = {
-  activeScopeLabel: "Manual upload only";
-};
+import type { DashboardOverview } from "./admin-shell";
 
 export function getDashboardOverview(): DashboardOverview {
   return {
