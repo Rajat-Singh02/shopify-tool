@@ -1,10 +1,15 @@
 import { readFile } from "node:fs/promises";
+import { createHmac } from "node:crypto";
 
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { handleVercelRuntimeRequest, resolveVercelRuntimeRoute } from "./[...path]";
 
 describe("Vercel runtime route surface", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
   it("imports the serverless entry without app-source module resolution failures", () => {
     expect(typeof handleVercelRuntimeRequest).toBe("function");
     expect(typeof resolveVercelRuntimeRoute).toBe("function");
@@ -104,6 +109,45 @@ describe("Vercel runtime route surface", () => {
     expect(serializedBody).not.toContain("invalid-token");
   });
 
+  it("resolves dashboard shop context from a valid App Bridge bearer token", async () => {
+    vi.stubEnv("SHOPIFY_API_KEY", "test_api_key");
+    vi.stubEnv("SHOPIFY_API_SECRET", "test_secret");
+    vi.stubEnv("SHOPIFY_APP_URL", "https://app.example.test");
+    vi.stubEnv("SHOPIFY_SCOPES", "read_products");
+    vi.stubEnv("SHOPIFY_API_VERSION", "2026-04");
+    const token = createTestSessionToken("test-shop.myshopify.com", "test_api_key", "test_secret");
+    const loadDashboardShop = vi.fn().mockResolvedValue({
+      shopDomain: "test-shop.myshopify.com",
+      installedAt: new Date("2026-05-22T00:00:00.000Z"),
+    });
+    const response = await handleVercelRuntimeRequest(
+      new Request("https://app.example.test/api/admin/dashboard", {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      }),
+      {
+        authenticateAdmin() {
+          throw new Error("offline session unavailable");
+        },
+        loadDashboardShop,
+      },
+    );
+    const body = (await response.json()) as {
+      shop: {
+        domain: string;
+      };
+    };
+    const serializedBody = JSON.stringify(body);
+
+    expect(response.status).toBe(200);
+    expect(loadDashboardShop).toHaveBeenCalledWith("test-shop.myshopify.com");
+    expect(body.shop.domain).toBe("test-shop.myshopify.com");
+    expect(serializedBody).not.toContain("accessToken");
+    expect(serializedBody).not.toContain("session");
+    expect(serializedBody).not.toContain("SHOPIFY_API_SECRET");
+  });
+
   it("routes webhook requests to the server handler and preserves rejection responses", async () => {
     const handleWebhook = vi.fn().mockResolvedValue(new Response(undefined, { status: 401 }));
     const response = await handleVercelRuntimeRequest(
@@ -181,3 +225,33 @@ describe("Vercel runtime route surface", () => {
     );
   });
 });
+
+function createTestSessionToken(shop: string, apiKey: string, apiSecretKey: string): string {
+  const now = Math.floor(Date.now() / 1000);
+  const payload = {
+    iss: `https://${shop}/admin`,
+    dest: `https://${shop}`,
+    aud: apiKey,
+    sub: "123456789",
+    exp: now + 3600,
+    nbf: now - 3600,
+    iat: now - 3600,
+    jti: "test-jti",
+    sid: "test-sid",
+  };
+  const header = {
+    alg: "HS256",
+    typ: "JWT",
+  };
+  const encodedHeader = base64UrlEncode(JSON.stringify(header));
+  const encodedPayload = base64UrlEncode(JSON.stringify(payload));
+  const signature = createHmac("sha256", apiSecretKey)
+    .update(`${encodedHeader}.${encodedPayload}`)
+    .digest("base64url");
+
+  return `${encodedHeader}.${encodedPayload}.${signature}`;
+}
+
+function base64UrlEncode(value: string): string {
+  return Buffer.from(value).toString("base64url");
+}

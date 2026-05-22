@@ -17,6 +17,11 @@ type AdminAuthResult = {
   session: AdminSession;
 };
 
+type DashboardShopRecord = {
+  shopDomain: string;
+  installedAt: Date;
+};
+
 type WebhookContext = {
   shop: string;
   topic: string;
@@ -29,6 +34,7 @@ type RuntimeDependencies = {
   authenticateWebhook?: (request: Request) => Promise<WebhookContext>;
   handleAdminDashboard?: (request: Request) => Promise<Response>;
   handleWebhook?: (request: Request) => Promise<Response>;
+  loadDashboardShop?: (shopDomain: string) => Promise<DashboardShopRecord>;
 };
 
 export default async function handler(
@@ -110,7 +116,7 @@ export async function handleNodeServerRequest(
 
 async function handleAdminDashboardRequest(
   request: Request,
-  { authenticateAdmin, handleAdminDashboard }: RuntimeDependencies,
+  { authenticateAdmin, handleAdminDashboard, loadDashboardShop }: RuntimeDependencies,
 ): Promise<Response> {
   if (handleAdminDashboard) {
     return handleAdminDashboard(request);
@@ -123,13 +129,11 @@ async function handleAdminDashboardRequest(
   let authenticated = false;
 
   try {
-    const authResult = authenticateAdmin
-      ? await authenticateAdmin(request)
-      : await authenticateShopifyAdmin(request);
+    const authResult = await authenticateDashboardRequest(request, authenticateAdmin);
     authenticated = true;
-    const { getPrismaClient, ShopRepository } = await import("@shoppable-video/db");
-    const shopRepository = new ShopRepository(getPrismaClient());
-    const shop = await shopRepository.ensureInstalled(authResult.session.shop);
+    const shop = loadDashboardShop
+      ? await loadDashboardShop(authResult.session.shop)
+      : await loadDashboardShopFromDatabase(authResult.session.shop);
 
     return Response.json(
       {
@@ -151,6 +155,40 @@ async function handleAdminDashboardRequest(
     const status = error instanceof Response ? error.status : authenticated ? 500 : 410;
 
     return dashboardAuthFailureResponse(status >= 400 && status < 500 ? status : 500);
+  }
+}
+
+async function authenticateDashboardRequest(
+  request: Request,
+  authenticateAdmin?: (request: Request) => Promise<AdminAuthResult>,
+): Promise<AdminAuthResult> {
+  try {
+    return authenticateAdmin
+      ? await authenticateAdmin(request)
+      : await authenticateShopifyAdmin(request);
+  } catch (error) {
+    const tokenAuthResult = await authenticateDashboardBearerToken(request);
+
+    if (tokenAuthResult) {
+      return tokenAuthResult;
+    }
+
+    throw error;
+  }
+}
+
+async function loadDashboardShopFromDatabase(shopDomain: string): Promise<DashboardShopRecord> {
+  try {
+    const { getPrismaClient, ShopRepository } = await import("@shoppable-video/db");
+    const shopRepository = new ShopRepository(getPrismaClient());
+
+    return await shopRepository.ensureInstalled(shopDomain);
+  } catch (error) {
+    console.error("Failed to load dashboard shop context", {
+      reason: error instanceof Error ? error.name : "UnknownError",
+    });
+
+    throw error;
   }
 }
 
@@ -324,6 +362,54 @@ function hasBearerAuthorization(request: Request): boolean {
     authorization?.toLowerCase().startsWith("bearer ") === true &&
     authorization.slice(7).trim().length > 0
   );
+}
+
+function getBearerToken(request: Request): string | undefined {
+  const authorization = request.headers.get("Authorization");
+
+  if (!authorization?.toLowerCase().startsWith("bearer ")) {
+    return undefined;
+  }
+
+  const token = authorization.slice(7).trim();
+
+  return token.length > 0 ? token : undefined;
+}
+
+async function authenticateDashboardBearerToken(
+  request: Request,
+): Promise<AdminAuthResult | undefined> {
+  const token = getBearerToken(request);
+
+  if (!token) {
+    return undefined;
+  }
+
+  try {
+    const { shopifyApi } = await import("@shopify/shopify-api");
+    const { parseShopifyScopes, toShopifyApiVersion } = await import("@shoppable-video/shopify");
+    const env = parseEnv(process.env);
+    const appUrl = new URL(env.SHOPIFY_APP_URL);
+    const api = shopifyApi({
+      apiKey: env.SHOPIFY_API_KEY,
+      apiSecretKey: env.SHOPIFY_API_SECRET,
+      apiVersion: toShopifyApiVersion(env.SHOPIFY_API_VERSION),
+      scopes: parseShopifyScopes(env.SHOPIFY_SCOPES),
+      hostName: appUrl.hostname,
+      hostScheme: appUrl.protocol === "http:" ? "http" : "https",
+      isEmbeddedApp: true,
+    });
+    const payload = await api.session.decodeSessionToken(token);
+    const shopDomain = new URL(payload.dest).hostname;
+
+    return {
+      session: {
+        shop: shopDomain,
+      },
+    };
+  } catch {
+    return undefined;
+  }
 }
 
 function dashboardAuthFailureResponse(status: number): Response {
