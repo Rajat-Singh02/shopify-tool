@@ -17,7 +17,7 @@ Feature 0 is a static admin shell and health route foundation. Shopify OAuth, au
 
 4. Use `apps/shopify-app/dist/client` as the output directory.
 5. Connect Vercel Production to the `prod` branch.
-6. Allow Preview deployments for `dev`, `backend`, `frontend`, and `feature/*` branches.
+6. Allow Preview deployments for `main`, `backend`, `frontend`, and `feature/*` branches.
 
 The repository includes `vercel.json` for the current static build output. Do not add secrets or branch-specific Shopify URLs to `vercel.json`.
 
@@ -26,8 +26,10 @@ The repository includes `vercel.json` for the current static build output. Do no
 | Vercel environment | Branches |
 | --- | --- |
 | Production | `prod` |
-| Preview | `dev`, `backend`, `frontend`, `feature/*` |
+| Preview | `main`, `backend`, `frontend`, `feature/*` |
 | Development | Local development or Vercel CLI when needed |
+
+`main` is the GitHub default and integration branch. It is not the production branch. `prod` is the production release branch. `dev` may exist temporarily as a legacy branch, but it should not receive new PRs or Vercel branch-specific setup.
 
 Use stable Vercel project domains or configured custom domains for Shopify app URLs. Do not hardcode random preview deployment URLs in source code.
 
