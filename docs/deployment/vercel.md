@@ -78,6 +78,8 @@ Never commit real values for API secrets, database URLs, session secrets, encryp
 
 Set `APP_URL` and `SHOPIFY_APP_URL` to the stable Vercel URL for the environment.
 
+See [Shopify config for Vercel environments](../shopify-config.md) for the Partner Dashboard, redirect URL, scope, and webhook strategy.
+
 Production example:
 
 ```txt
