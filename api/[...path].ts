@@ -37,6 +37,13 @@ type RuntimeDependencies = {
   loadDashboardShop?: (shopDomain: string) => Promise<DashboardShopRecord>;
 };
 
+type DashboardDiagnosticError = Error & {
+  code?: unknown;
+  clientVersion?: unknown;
+  meta?: unknown;
+};
+type SafeDiagnosticValue = string | number | boolean | null;
+
 export default async function handler(
   request: IncomingMessage,
   response: ServerResponse,
@@ -154,6 +161,10 @@ async function handleAdminDashboardRequest(
   } catch (error) {
     const status = error instanceof Response ? error.status : authenticated ? 500 : 410;
 
+    if (authenticated && !(error instanceof Response)) {
+      logDashboardShopContextError(error);
+    }
+
     return dashboardAuthFailureResponse(status >= 400 && status < 500 ? status : 500);
   }
 }
@@ -178,18 +189,101 @@ async function authenticateDashboardRequest(
 }
 
 async function loadDashboardShopFromDatabase(shopDomain: string): Promise<DashboardShopRecord> {
-  try {
-    const { getPrismaClient, ShopRepository } = await import("@shoppable-video/db");
-    const shopRepository = new ShopRepository(getPrismaClient());
+  const { getPrismaClient, ShopRepository } = await import("@shoppable-video/db");
+  const shopRepository = new ShopRepository(getPrismaClient());
 
-    return await shopRepository.ensureInstalled(shopDomain);
-  } catch (error) {
-    console.error("Failed to load dashboard shop context", {
-      reason: error instanceof Error ? error.name : "UnknownError",
-    });
+  return shopRepository.ensureInstalled(shopDomain);
+}
 
-    throw error;
+export function createDashboardShopContextDiagnostic(error: unknown) {
+  const diagnosticError = toDashboardDiagnosticError(error);
+
+  return {
+    operation: "dashboard.ensureShopContext",
+    reason: diagnosticError.name,
+    code: typeof diagnosticError.code === "string" ? diagnosticError.code : undefined,
+    clientVersion:
+      typeof diagnosticError.clientVersion === "string" ? diagnosticError.clientVersion : undefined,
+    message: sanitizeDiagnosticMessage(diagnosticError.message),
+    meta: sanitizeDiagnosticMeta(diagnosticError.meta),
+  };
+}
+
+function logDashboardShopContextError(error: unknown): void {
+  console.error(
+    "Failed to load dashboard shop context",
+    createDashboardShopContextDiagnostic(error),
+  );
+}
+
+function toDashboardDiagnosticError(error: unknown): DashboardDiagnosticError {
+  if (error instanceof Error) {
+    return error;
   }
+
+  return new Error("Unknown dashboard shop context error");
+}
+
+function sanitizeDiagnosticMeta(meta: unknown): Record<string, SafeDiagnosticValue> {
+  if (!meta || typeof meta !== "object" || Array.isArray(meta)) {
+    return {};
+  }
+
+  const sanitizedMeta: Record<string, SafeDiagnosticValue> = {};
+  const metaRecord = meta as Record<string, unknown>;
+
+  for (const [key, value] of Object.entries(metaRecord)) {
+    if (isSensitiveDiagnosticKey(key)) {
+      continue;
+    }
+
+    if (isSafeDiagnosticValue(value)) {
+      sanitizedMeta[key] = sanitizeDiagnosticValue(value);
+    }
+  }
+
+  return sanitizedMeta;
+}
+
+function sanitizeDiagnosticMessage(message: string): string {
+  const sanitizedMessage = sanitizeDiagnosticValue(message);
+
+  return typeof sanitizedMessage === "string" ? sanitizedMessage.slice(0, 800) : "";
+}
+
+function sanitizeDiagnosticValue(value: SafeDiagnosticValue): SafeDiagnosticValue {
+  if (typeof value !== "string") {
+    return value;
+  }
+
+  if (containsSensitiveDiagnosticValue(value)) {
+    return "[redacted]";
+  }
+
+  return value;
+}
+
+function isSafeDiagnosticValue(value: unknown): value is SafeDiagnosticValue {
+  return (
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean" ||
+    value === null
+  );
+}
+
+function isSensitiveDiagnosticKey(key: string): boolean {
+  return /authorization|token|secret|password|database|connection|url|access/i.test(key);
+}
+
+function containsSensitiveDiagnosticValue(value: string): boolean {
+  return (
+    /bearer\s+/i.test(value) ||
+    /postgres(?:ql)?:\/\//i.test(value) ||
+    /shopify_api_secret/i.test(value) ||
+    /database_url/i.test(value) ||
+    /access[_-]?token/i.test(value)
+  );
 }
 
 async function handleWebhookRequest(
