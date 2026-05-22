@@ -16,3 +16,4 @@ storage
 .DS_Store
 .specstory/
 .cursorindexingignore
+.vercel
