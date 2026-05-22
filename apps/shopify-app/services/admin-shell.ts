@@ -21,14 +21,37 @@ export type AdminDashboardState =
   | { status: "error"; message: string };
 
 export type AdminDashboardContextLoader = () => Promise<AdminDashboardData>;
+export type AdminDashboardTokenProvider = () => Promise<string | undefined>;
+
+type ShopifyAppBridgeGlobal = {
+  idToken?: () => Promise<string>;
+};
+
+export async function getShopifyIdToken(): Promise<string | undefined> {
+  if (typeof window === "undefined") {
+    return undefined;
+  }
+
+  const shopify = (window as Window & { shopify?: ShopifyAppBridgeGlobal }).shopify;
+
+  return shopify?.idToken?.();
+}
 
 export async function fetchAdminDashboardContext(
   fetcher: typeof fetch = fetch,
+  tokenProvider: AdminDashboardTokenProvider = getShopifyIdToken,
 ): Promise<AdminDashboardData> {
+  const headers = new Headers({
+    Accept: "application/json",
+  });
+  const token = await safelyLoadDashboardToken(tokenProvider);
+
+  if (token) {
+    headers.set("Authorization", `Bearer ${token}`);
+  }
+
   const response = await fetcher(ADMIN_DASHBOARD_CONTEXT_PATH, {
-    headers: {
-      Accept: "application/json",
-    },
+    headers,
   });
 
   if (!response.ok) {
@@ -36,4 +59,14 @@ export async function fetchAdminDashboardContext(
   }
 
   return (await response.json()) as AdminDashboardData;
+}
+
+async function safelyLoadDashboardToken(
+  tokenProvider: AdminDashboardTokenProvider,
+): Promise<string | undefined> {
+  try {
+    return await tokenProvider();
+  } catch {
+    return undefined;
+  }
 }
