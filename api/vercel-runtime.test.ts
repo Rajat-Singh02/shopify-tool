@@ -3,7 +3,11 @@ import { createHmac } from "node:crypto";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { handleVercelRuntimeRequest, resolveVercelRuntimeRoute } from "./[...path]";
+import {
+  createDashboardShopContextDiagnostic,
+  handleVercelRuntimeRequest,
+  resolveVercelRuntimeRoute,
+} from "./[...path]";
 
 describe("Vercel runtime route surface", () => {
   afterEach(() => {
@@ -146,6 +150,96 @@ describe("Vercel runtime route surface", () => {
     expect(serializedBody).not.toContain("accessToken");
     expect(serializedBody).not.toContain("session");
     expect(serializedBody).not.toContain("SHOPIFY_API_SECRET");
+  });
+
+  it("logs safe Prisma diagnostics when authenticated dashboard shop loading fails", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    const prismaError = new Error("Invalid prisma.shop.upsert invocation with bearer abc") as Error & {
+      code: string;
+      clientVersion: string;
+      meta: Record<string, unknown>;
+    };
+    prismaError.name = "PrismaClientKnownRequestError";
+    prismaError.code = "P2022";
+    prismaError.clientVersion = "7.8.0";
+    prismaError.meta = {
+      modelName: "Shop",
+      column: "createdAt",
+      accessToken: "secret-token",
+      connectionString: "postgresql://secret",
+    };
+
+    const response = await handleVercelRuntimeRequest(
+      new Request("https://app.example.test/api/admin/dashboard"),
+      {
+        authenticateAdmin() {
+          return Promise.resolve({
+            session: {
+              shop: "test-shop.myshopify.com",
+            },
+          });
+        },
+        loadDashboardShop() {
+          throw prismaError;
+        },
+      },
+    );
+    const loggedDiagnostic = consoleError.mock.calls[0]?.[1] as unknown;
+    const serializedDiagnostic = JSON.stringify(loggedDiagnostic);
+
+    expect(response.status).toBe(500);
+    expect(consoleError).toHaveBeenCalledWith(
+      "Failed to load dashboard shop context",
+      expect.objectContaining({
+        operation: "dashboard.ensureShopContext",
+        reason: "PrismaClientKnownRequestError",
+        code: "P2022",
+        clientVersion: "7.8.0",
+        message: "[redacted]",
+        meta: {
+          modelName: "Shop",
+          column: "createdAt",
+        },
+      }),
+    );
+    expect(serializedDiagnostic).not.toContain("secret-token");
+    expect(serializedDiagnostic).not.toContain("postgresql://");
+    expect(serializedDiagnostic).not.toContain("Authorization");
+
+    consoleError.mockRestore();
+  });
+
+  it("keeps dashboard Prisma diagnostics limited to safe primitive metadata", () => {
+    const error = new Error("relation missing") as Error & {
+      code: string;
+      clientVersion: string;
+      meta: Record<string, unknown>;
+    };
+    error.name = "PrismaClientKnownRequestError";
+    error.code = "P2021";
+    error.clientVersion = "7.8.0";
+    error.meta = {
+      modelName: "Shop",
+      table: "public.Shop",
+      token: "should-not-log",
+      nested: {
+        modelName: "Nested",
+      },
+    };
+
+    const diagnostic = createDashboardShopContextDiagnostic(error);
+
+    expect(diagnostic).toEqual({
+      operation: "dashboard.ensureShopContext",
+      reason: "PrismaClientKnownRequestError",
+      code: "P2021",
+      clientVersion: "7.8.0",
+      message: "relation missing",
+      meta: {
+        modelName: "Shop",
+        table: "public.Shop",
+      },
+    });
   });
 
   it("routes webhook requests to the server handler and preserves rejection responses", async () => {
