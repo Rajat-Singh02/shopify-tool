@@ -23,13 +23,13 @@ Use stable Vercel domains or custom domains for Shopify application URLs.
 | Shopify use case | Branch or Vercel environment | URL strategy |
 | --- | --- | --- |
 | Production app | `prod` | Vercel Production URL or production custom domain |
-| Development/test app | `dev` | Stable Vercel preview/dev URL or dev custom domain |
+| Development/test app | `main` | Stable Vercel preview/dev URL or dev custom domain |
 | Backend/frontend validation | `backend`, `frontend` | Stable preview URL if OAuth testing is needed |
 | Feature branch UI review | `feature/*` | Preview URL for visual review, not random OAuth callback configuration |
 
 Random Vercel preview deployment URLs are poor OAuth callback targets because each deployment gets a different hostname. Shopify OAuth redirect URLs must match exactly, so changing preview URLs creates noisy Partner Dashboard updates and callback failures.
 
-Prefer one stable dev/test Shopify app mapped to one stable dev/test Vercel domain for OAuth and webhook testing.
+Prefer one stable dev/test Shopify app mapped to one stable `main` preview/dev Vercel domain for OAuth and webhook testing.
 
 ## Partner Dashboard Values
 
@@ -46,7 +46,7 @@ Required values:
 Production and development should usually be separate Shopify apps:
 
 - Production Shopify app -> Vercel Production URL/custom production domain -> `prod`.
-- Development Shopify app -> stable Vercel dev/preview URL/custom dev domain -> `dev`.
+- Development Shopify app -> stable Vercel dev/preview URL/custom dev domain -> `main`.
 
 Set matching Vercel environment variables:
 
