@@ -110,7 +110,7 @@ describe("admin dashboard loader", () => {
       },
     );
 
-    expect(response.status).toBe(500);
+    expect(response.status).toBe(410);
     await expect(response.json()).resolves.toEqual({
       message: ADMIN_SHELL_SAFE_ERROR_MESSAGE,
     });

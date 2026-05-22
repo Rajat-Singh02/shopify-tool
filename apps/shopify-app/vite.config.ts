@@ -3,6 +3,15 @@ import { defineConfig, type Plugin } from "vite";
 
 import { handleHealthRequest } from "./routes/health";
 
+function shopifyAppBridgePlugin(): Plugin {
+  return {
+    name: "shoppable-video-shopify-app-bridge",
+    transformIndexHtml(html) {
+      return html.replace("%SHOPIFY_API_KEY%", process.env.SHOPIFY_API_KEY ?? "");
+    },
+  };
+}
+
 function healthRoutePlugin(): Plugin {
   return {
     name: "shoppable-video-health-route",
@@ -22,7 +31,7 @@ function healthRoutePlugin(): Plugin {
 }
 
 export default defineConfig({
-  plugins: [react(), healthRoutePlugin()],
+  plugins: [react(), shopifyAppBridgePlugin(), healthRoutePlugin()],
   server: {
     port: 5173,
   },

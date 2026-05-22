@@ -2,10 +2,7 @@ import { readFile } from "node:fs/promises";
 
 import { describe, expect, it, vi } from "vitest";
 
-import {
-  handleVercelRuntimeRequest,
-  resolveVercelRuntimeRoute,
-} from "./[...path]";
+import { handleVercelRuntimeRequest, resolveVercelRuntimeRoute } from "./[...path]";
 
 describe("Vercel runtime route surface", () => {
   it("imports the serverless entry without app-source module resolution failures", () => {
@@ -71,12 +68,48 @@ describe("Vercel runtime route surface", () => {
     expect(serializedBody).not.toContain("SHOPIFY_API_SECRET");
   });
 
+  it("returns a safe unauthenticated dashboard response when no bearer token is present", async () => {
+    const response = await handleVercelRuntimeRequest(
+      new Request("https://app.example.test/api/admin/dashboard"),
+    );
+
+    const body = (await response.json()) as {
+      message: string;
+    };
+
+    expect(response.status).toBe(410);
+    expect(body.message).toBe(
+      "We could not load the authenticated shop context. Reload the app from Shopify admin.",
+    );
+  });
+
+  it("returns a safe dashboard response when Shopify token authentication fails", async () => {
+    const response = await handleVercelRuntimeRequest(
+      new Request("https://app.example.test/api/admin/dashboard", {
+        headers: {
+          Authorization: "Bearer invalid-token",
+        },
+      }),
+      {
+        authenticateAdmin() {
+          throw new Error("raw token validation failure");
+        },
+      },
+    );
+
+    const serializedBody = JSON.stringify(await response.json());
+
+    expect(response.status).toBe(410);
+    expect(serializedBody).not.toContain("raw token validation failure");
+    expect(serializedBody).not.toContain("invalid-token");
+  });
+
   it("routes webhook requests to the server handler and preserves rejection responses", async () => {
     const handleWebhook = vi.fn().mockResolvedValue(new Response(undefined, { status: 401 }));
     const response = await handleVercelRuntimeRequest(
       new Request("https://app.example.test/api/webhooks", {
         method: "POST",
-        body: "{\"shop_domain\":\"test-shop.myshopify.com\"}",
+        body: '{"shop_domain":"test-shop.myshopify.com"}',
       }),
       {
         handleWebhook,

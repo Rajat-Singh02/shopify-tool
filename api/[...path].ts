@@ -7,12 +7,7 @@ export const config = {
   },
 };
 
-type VercelRuntimeRoute =
-  | "admin-dashboard"
-  | "auth"
-  | "health"
-  | "webhook"
-  | "not-found";
+type VercelRuntimeRoute = "admin-dashboard" | "auth" | "health" | "webhook" | "not-found";
 
 type AdminSession = {
   shop: string;
@@ -121,10 +116,17 @@ async function handleAdminDashboardRequest(
     return handleAdminDashboard(request);
   }
 
+  if (!authenticateAdmin && !hasBearerAuthorization(request)) {
+    return dashboardAuthFailureResponse(410);
+  }
+
+  let authenticated = false;
+
   try {
     const authResult = authenticateAdmin
       ? await authenticateAdmin(request)
       : await authenticateShopifyAdmin(request);
+    authenticated = true;
     const { getPrismaClient, ShopRepository } = await import("@shoppable-video/db");
     const shopRepository = new ShopRepository(getPrismaClient());
     const shop = await shopRepository.ensureInstalled(authResult.session.shop);
@@ -146,20 +148,9 @@ async function handleAdminDashboardRequest(
       },
     );
   } catch (error) {
-    const status = error instanceof Response ? error.status : 500;
+    const status = error instanceof Response ? error.status : authenticated ? 500 : 410;
 
-    return Response.json(
-      {
-        message:
-          "We could not load the authenticated shop context. Reload the app from Shopify admin.",
-      },
-      {
-        status: status >= 400 && status < 500 ? status : 500,
-        headers: {
-          "Cache-Control": "no-store",
-        },
-      },
-    );
+    return dashboardAuthFailureResponse(status >= 400 && status < 500 ? status : 500);
   }
 }
 
@@ -176,15 +167,10 @@ async function handleWebhookRequest(
     const webhook = authenticateWebhook
       ? await authenticateWebhook(request)
       : await authenticateShopifyWebhook(request);
-    const {
-      getPrismaClient,
-      ShopRepository,
-      WebhookDeliveryRepository,
-    } = await import("@shoppable-video/db");
-    const {
-      isAppUninstalledTopic,
-      normalizeShopifyWebhookTopic,
-    } = await import("@shoppable-video/shopify");
+    const { getPrismaClient, ShopRepository, WebhookDeliveryRepository } =
+      await import("@shoppable-video/db");
+    const { isAppUninstalledTopic, normalizeShopifyWebhookTopic } =
+      await import("@shoppable-video/shopify");
     const prisma = getPrismaClient();
     const shopRepository = new ShopRepository(prisma);
     const webhookDeliveryRepository = new WebhookDeliveryRepository(prisma);
@@ -259,18 +245,10 @@ async function authenticateShopifyWebhook(request: Request): Promise<WebhookCont
 }
 
 async function getShopifyServer() {
-  const { AppDistribution, shopifyApp } = await import(
-    "@shopify/shopify-app-react-router/server"
-  );
-  const {
-    getPrismaClient,
-    PrismaShopifySessionStorage,
-    ShopRepository,
-  } = await import("@shoppable-video/db");
-  const {
-    parseShopifyScopes,
-    toShopifyApiVersion,
-  } = await import("@shoppable-video/shopify");
+  const { AppDistribution, shopifyApp } = await import("@shopify/shopify-app-react-router/server");
+  const { getPrismaClient, PrismaShopifySessionStorage, ShopRepository } =
+    await import("@shoppable-video/db");
+  const { parseShopifyScopes, toShopifyApiVersion } = await import("@shoppable-video/shopify");
   const env = parseEnv(process.env);
   const prisma = getPrismaClient();
   const shopRepository = new ShopRepository(prisma);
@@ -339,6 +317,30 @@ function serializeError(error: unknown) {
   };
 }
 
+function hasBearerAuthorization(request: Request): boolean {
+  const authorization = request.headers.get("Authorization");
+
+  return (
+    authorization?.toLowerCase().startsWith("bearer ") === true &&
+    authorization.slice(7).trim().length > 0
+  );
+}
+
+function dashboardAuthFailureResponse(status: number): Response {
+  return Response.json(
+    {
+      message:
+        "We could not load the authenticated shop context. Reload the app from Shopify admin.",
+    },
+    {
+      status,
+      headers: {
+        "Cache-Control": "no-store",
+      },
+    },
+  );
+}
+
 function toShopifyAuthRequest(request: Request): Request {
   const url = new URL(request.url);
 
@@ -357,7 +359,8 @@ async function toFetchRequest(nodeRequest: IncomingMessage): Promise<Request> {
   const host = headers.get("host") ?? "localhost";
   const protocol = headers.get("x-forwarded-proto") ?? "https";
   const url = new URL(nodeRequest.url ?? "/", `${protocol}://${host}`);
-  const body = method === "GET" || method === "HEAD" ? undefined : await readRequestBody(nodeRequest);
+  const body =
+    method === "GET" || method === "HEAD" ? undefined : await readRequestBody(nodeRequest);
 
   return new Request(url, {
     method,
@@ -396,10 +399,7 @@ async function readRequestBody(nodeRequest: IncomingMessage): Promise<Blob | und
   return new Blob([Buffer.concat(chunks)]);
 }
 
-async function writeNodeResponse(
-  nodeResponse: ServerResponse,
-  response: Response,
-): Promise<void> {
+async function writeNodeResponse(nodeResponse: ServerResponse, response: Response): Promise<void> {
   nodeResponse.statusCode = response.status;
   response.headers.forEach((value, key) => {
     nodeResponse.setHeader(key, value);

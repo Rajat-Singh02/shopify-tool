@@ -1,13 +1,7 @@
 import type { ShopRepository } from "@shoppable-video/db";
 
-import {
-  authenticateAdminRequest,
-  type AdminAuthenticator,
-} from "../services/admin-auth.server";
-import {
-  ADMIN_SHELL_SAFE_ERROR_MESSAGE,
-  type AdminDashboardData,
-} from "../services/admin-shell";
+import { authenticateAdminRequest, type AdminAuthenticator } from "../services/admin-auth.server";
+import { ADMIN_SHELL_SAFE_ERROR_MESSAGE, type AdminDashboardData } from "../services/admin-shell";
 import { getDashboardOverview } from "../services/dashboard.server";
 
 export type AdminDashboardLoaderDependencies = {
@@ -43,7 +37,7 @@ export async function handleAdminDashboardContextRequest(
       },
     });
   } catch (error) {
-    const status = error instanceof Response ? error.status : 500;
+    const status = error instanceof Response ? error.status : 410;
 
     return Response.json(
       {
