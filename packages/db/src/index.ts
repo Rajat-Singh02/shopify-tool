@@ -16,3 +16,11 @@ export function assertShopScope(context: RepositoryContext): string {
 
   return context.shopId;
 }
+
+export { createPrismaClient, getPrismaClient } from "./prisma";
+export { ShopRepository, type ShopRecord, type ShopRepositoryClient } from "./repositories/shop-repository";
+export {
+  PrismaShopifySessionStorage,
+  type ShopifySessionRecord,
+  type ShopifySessionStorageClient,
+} from "./shopify-session-storage";

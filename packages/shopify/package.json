@@ -9,6 +9,7 @@
     "build": "tsc -p tsconfig.json"
   },
   "dependencies": {
+    "@shopify/shopify-app-react-router": "^1.2.0",
     "@shoppable-video/shared": "0.0.0"
   }
 }
