@@ -127,4 +127,24 @@ describe("Vercel runtime route surface", () => {
       ]),
     );
   });
+
+  it("keeps the canonical Shopify auth callback on a nested Vercel API function", async () => {
+    const authFunction = await readFile("api/auth/[...path].ts", "utf8");
+    const vercelConfig = JSON.parse(await readFile("vercel.json", "utf8")) as {
+      rewrites?: Array<{
+        source: string;
+        destination: string;
+      }>;
+    };
+
+    expect(authFunction).toContain("../[...path].js");
+    expect(vercelConfig.rewrites).toEqual(
+      expect.arrayContaining([
+        {
+          source: "/auth/:path*",
+          destination: "/api/auth/:path*",
+        },
+      ]),
+    );
+  });
 });
