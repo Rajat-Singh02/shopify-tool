@@ -90,4 +90,39 @@ describe("ShopRepository", () => {
     expect(shop.uninstalledAt).toBeNull();
     expect(updated).toHaveLength(1);
   });
+
+  it("marks an installed shop uninstalled", async () => {
+    const existingShop = createShop();
+    const { client, updated } = createClient(existingShop);
+    const repository = new ShopRepository(client);
+    const uninstalledAt = new Date("2026-05-22T12:00:00.000Z");
+
+    const shop = await repository.markUninstalled(existingShop.shopDomain, uninstalledAt);
+
+    expect(shop?.uninstalledAt).toEqual(uninstalledAt);
+    expect(updated).toHaveLength(1);
+  });
+
+  it("does not repeat uninstall side effects for already uninstalled shops", async () => {
+    const existingShop = createShop({
+      uninstalledAt: new Date("2026-05-21T00:00:00.000Z"),
+    });
+    const { client, updated } = createClient(existingShop);
+    const repository = new ShopRepository(client);
+
+    const shop = await repository.markUninstalled(existingShop.shopDomain);
+
+    expect(shop).toBe(existingShop);
+    expect(updated).toHaveLength(0);
+  });
+
+  it("returns null when uninstalling a missing shop", async () => {
+    const { client, updated } = createClient(null);
+    const repository = new ShopRepository(client);
+
+    const shop = await repository.markUninstalled("missing-shop.myshopify.com");
+
+    expect(shop).toBeNull();
+    expect(updated).toHaveLength(0);
+  });
 });

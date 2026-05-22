@@ -4,13 +4,16 @@ export type ShopifySessionShop = {
   shop: string;
 };
 
-export type ShopLifecycleDependencies = {
-  shopRepository: Pick<ShopRepository, "ensureInstalled">;
-};
-
 export async function ensureShopForSession(
   session: ShopifySessionShop,
-  { shopRepository }: ShopLifecycleDependencies,
+  { shopRepository }: { shopRepository: Pick<ShopRepository, "ensureInstalled"> },
 ): Promise<ShopRecord> {
   return shopRepository.ensureInstalled(session.shop);
+}
+
+export async function markShopUninstalled(
+  shopDomain: string,
+  { shopRepository }: { shopRepository: Pick<ShopRepository, "markUninstalled"> },
+): Promise<ShopRecord | null> {
+  return shopRepository.markUninstalled(shopDomain);
 }

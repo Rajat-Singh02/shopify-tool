@@ -23,7 +23,7 @@ export type ShopRepositoryClient = {
       where: { shopDomain: string };
       data: {
         installedAt?: Date;
-        uninstalledAt?: null;
+        uninstalledAt?: Date | null;
       };
     }): Promise<ShopRecord>;
   };
@@ -63,5 +63,25 @@ export class ShopRepository {
     }
 
     return existing;
+  }
+
+  async markUninstalled(shopDomain: string, uninstalledAt = new Date()): Promise<ShopRecord | null> {
+    const normalizedShopDomain = ShopDomainSchema.parse(shopDomain);
+    const existing = await this.findByDomain(normalizedShopDomain);
+
+    if (!existing) {
+      return null;
+    }
+
+    if (existing.uninstalledAt) {
+      return existing;
+    }
+
+    return this.client.shop.update({
+      where: { shopDomain: normalizedShopDomain },
+      data: {
+        uninstalledAt,
+      },
+    });
   }
 }
