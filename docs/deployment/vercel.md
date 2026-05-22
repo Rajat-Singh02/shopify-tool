@@ -2,7 +2,7 @@
 
 This app deploys to Vercel. Do not use tunneling URLs for Shopify development, preview, or production setup.
 
-Feature 0 is a static admin shell and health route foundation. Shopify OAuth, authenticated app routes, webhooks, video upload, processing, widgets, and analytics are intentionally deferred to later PRs.
+The Vite client is served as static output, and Shopify backend surfaces are served by a Vercel Node serverless function.
 
 ## Project Setup
 
@@ -19,7 +19,27 @@ Feature 0 is a static admin shell and health route foundation. Shopify OAuth, au
 5. Connect Vercel Production to the `prod` branch.
 6. Allow Preview deployments for `main`, `backend`, `frontend`, and `feature/*` branches.
 
-The repository includes `vercel.json` for the current static build output. Do not add secrets or branch-specific Shopify URLs to `vercel.json`.
+The repository includes `vercel.json` for the static client output plus serverless route rewrites. Do not add secrets or branch-specific Shopify URLs to `vercel.json`.
+
+## Runtime Routing
+
+The Vercel deployment uses two outputs:
+
+- Static client bundle: `apps/shopify-app/dist/client`, produced by `npm run build`.
+- Serverless runtime: `api/[...path].ts`, compiled by Vercel as a Node function.
+
+The serverless function delegates into `apps/shopify-app/server/vercel-runtime.ts`.
+
+Runtime routes:
+
+| Public path | Vercel destination | Runtime handler |
+| --- | --- | --- |
+| `/webhooks` | `/api/webhooks` | Shopify raw-body webhook handler |
+| `/api/admin/dashboard` | `/api/admin/dashboard` | Authenticated dashboard data handler |
+| `/auth/*` | `/api/auth/*` | Shopify React Router admin auth helper |
+| `/health` | `/api/health` | Health handler |
+
+`/webhooks` is rewritten so Shopify can use the configured webhook URL while Vercel still executes the catch-all API function. Webhook request bodies are read in the serverless function with Vercel body parsing disabled so Shopify HMAC verification receives the raw body.
 
 ## Branch Mapping
 
@@ -102,15 +122,15 @@ Shopify app configuration requires matching URLs:
 
 - Application URL: `${SHOPIFY_APP_URL}`
 - OAuth redirect URL: `${SHOPIFY_APP_URL}/auth/callback`
-- Webhook URL: `${SHOPIFY_APP_URL}/webhooks` once webhooks are implemented
+- Webhook URL: `${SHOPIFY_APP_URL}/webhooks`
 
-OAuth runtime wiring is deferred to Feature 1, so these URLs document the required shape without implementing auth in this PR.
+The Vercel runtime must have access to the Shopify API secret, session secret, and database URL through Vercel environment variables only.
 
 ## Database and Prisma
 
 Use managed Postgres for Preview and Production. `DATABASE_URL` must point at the correct database for each Vercel environment.
 
-Prisma uses `prisma.config.ts` and `packages/db/prisma/schema.prisma`. The current CI generates the Prisma client before checks. Vercel builds use the existing root build command; if later server code imports Prisma client during the build, add Prisma generation to the build pipeline in a dedicated PR.
+Prisma uses `prisma.config.ts` and `packages/db/prisma/schema.prisma`. The current CI generates the Prisma client before checks. Vercel builds use the existing root build command, and Vercel compiles the serverless runtime from `api/[...path].ts`.
 
 Do not run destructive migrations automatically from Vercel builds. Migration strategy should be documented separately before production launch.
 
@@ -131,10 +151,8 @@ The video worker and FFmpeg processing are not deployed in this PR. Configure `F
 
 ## External Services Deferred
 
-The following are intentionally not implemented in this deployment foundation:
+The following are intentionally not implemented in this deployment/runtime foundation:
 
-- Shopify OAuth/session runtime.
-- Shopify webhook runtime.
 - Product search.
 - Manual video upload.
 - Video processing.

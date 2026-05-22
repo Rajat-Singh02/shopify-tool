@@ -2,7 +2,7 @@
 
 This project uses Vercel for deployed development, preview, and production testing. Do not use tunnel URLs for Shopify app configuration.
 
-OAuth runtime wiring is deferred to Feature 1. This document defines the URL, scope, and environment strategy that Feature 1 must follow.
+Shopify auth and webhook routes are served on Vercel through the Node serverless runtime defined in `api/[...path].ts`.
 
 ## Config Files
 
@@ -63,7 +63,7 @@ Do not commit real values for API keys or secrets.
 
 ## Redirect URLs
 
-Feature 1 will decide the final OAuth route shape. Until then, configure redirect URLs according to the implemented auth route.
+The Shopify auth path prefix is `/auth`.
 
 Expected redirect URL patterns:
 
@@ -72,7 +72,7 @@ https://<app-domain>/auth/callback
 https://<app-domain>/api/auth/callback
 ```
 
-Only keep redirect URLs that are actually implemented and used. The current `shopify.app.toml` placeholder uses `/auth/callback` because OAuth runtime routes are not implemented yet.
+Only keep redirect URLs that are actually implemented and used. The Vercel runtime rewrites `/auth/*` to the serverless function while preserving the Shopify auth path prefix for the Shopify auth helper.
 
 ## App URL
 
@@ -103,7 +103,7 @@ Do not add social integration scopes. Meta, Instagram, TikTok, Facebook, social 
 
 ## Webhooks
 
-Feature 1B will implement webhook runtime handling.
+The lifecycle webhook handler runs through the Vercel serverless runtime.
 
 Expected lifecycle webhook:
 
@@ -111,7 +111,7 @@ Expected lifecycle webhook:
 app/uninstalled -> https://<app-domain>/webhooks
 ```
 
-The current `shopify.app.toml` reserves the `app/uninstalled` subscription shape, but runtime HMAC verification and idempotent processing are deferred to Feature 1B.
+The current `shopify.app.toml` reserves the `app/uninstalled` subscription shape. Runtime HMAC verification and idempotent processing are implemented by the `/webhooks` route.
 
 ## Environment Checklist
 
