@@ -1,6 +1,6 @@
 name = "Shoppable Video"
 client_id = "replace-me"
-application_url = "https://example.ngrok-free.app"
+application_url = "https://replace-with-your-vercel-app-url.vercel.app"
 embedded = true
 
 [build]
@@ -9,7 +9,7 @@ dev_store_url = ""
 
 [auth]
 redirect_urls = [
-  "https://example.ngrok-free.app/auth/callback"
+  "https://replace-with-your-vercel-app-url.vercel.app/auth/callback"
 ]
 
 [webhooks]
