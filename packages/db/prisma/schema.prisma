@@ -1,0 +1,173 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum VideoSource {
+  MANUAL_UPLOAD
+}
+
+enum VideoStatus {
+  UPLOADED
+  PROCESSING
+  READY
+  FAILED
+  ARCHIVED
+}
+
+enum WidgetStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+enum WidgetLayout {
+  INLINE_CAROUSEL
+}
+
+enum AnalyticsEventType {
+  WIDGET_VIEWED
+  VIDEO_PLAYED
+  VIDEO_COMPLETED
+  PRODUCT_CLICKED
+  ADD_TO_CART_CLICKED
+  ADD_TO_CART_SUCCEEDED
+  ADD_TO_CART_FAILED
+}
+
+model Shop {
+  id            String    @id @default(cuid())
+  shopDomain    String    @unique
+  accessToken   String?
+  installedAt   DateTime  @default(now())
+  uninstalledAt DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  videos            Video[]
+  videoProductTags  VideoProductTag[]
+  widgets           Widget[]
+  widgetVideos      WidgetVideo[]
+  analyticsEvents   AnalyticsEvent[]
+  webhookDeliveries WebhookDelivery[]
+}
+
+model Video {
+  id                  String      @id @default(cuid())
+  shopId              String
+  source              VideoSource @default(MANUAL_UPLOAD)
+  originalFilename    String
+  originalMimeType    String
+  originalSizeBytes   BigInt
+  status              VideoStatus @default(UPLOADED)
+  storageKeyOriginal  String?
+  storageKeyOptimized String?
+  playbackUrl         String?
+  thumbnailUrl        String?
+  durationMs          Int?
+  width               Int?
+  height              Int?
+  failureReason       String?
+  createdAt           DateTime    @default(now())
+  updatedAt           DateTime    @updatedAt
+
+  shop            Shop              @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  productTags     VideoProductTag[]
+  widgetVideos    WidgetVideo[]
+  analyticsEvents AnalyticsEvent[]
+
+  @@index([shopId, status])
+}
+
+model VideoProductTag {
+  id                       String   @id @default(cuid())
+  shopId                   String
+  videoId                  String
+  shopifyProductId         String
+  shopifyVariantId         String
+  productTitleSnapshot     String
+  variantTitleSnapshot     String?
+  productImageUrlSnapshot  String?
+  priceSnapshot            Decimal?
+  currencyCodeSnapshot     String?
+  position                 Int
+  isActive                 Boolean  @default(true)
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
+
+  shop            Shop             @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  video           Video            @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  analyticsEvents AnalyticsEvent[]
+
+  @@index([shopId, videoId])
+  @@unique([shopId, videoId, shopifyVariantId])
+}
+
+model Widget {
+  id           String       @id @default(cuid())
+  shopId       String
+  name         String
+  status       WidgetStatus @default(DRAFT)
+  layout       WidgetLayout @default(INLINE_CAROUSEL)
+  settingsJson Json
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  shop            Shop             @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  widgetVideos    WidgetVideo[]
+  analyticsEvents AnalyticsEvent[]
+
+  @@index([shopId, status])
+}
+
+model WidgetVideo {
+  id        String   @id @default(cuid())
+  shopId    String
+  widgetId  String
+  videoId   String
+  position  Int
+  createdAt DateTime @default(now())
+
+  shop   Shop   @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  widget Widget @relation(fields: [widgetId], references: [id], onDelete: Cascade)
+  video  Video  @relation(fields: [videoId], references: [id], onDelete: Cascade)
+
+  @@index([shopId, widgetId])
+  @@unique([shopId, widgetId, videoId])
+}
+
+model AnalyticsEvent {
+  id                 String             @id @default(cuid())
+  shopId             String
+  widgetId           String?
+  videoId            String?
+  tagId              String?
+  eventType          AnalyticsEventType
+  anonymousVisitorId String?
+  sessionId          String?
+  occurredAt         DateTime           @default(now())
+  metadataJson       Json?
+
+  shop   Shop             @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  widget Widget?          @relation(fields: [widgetId], references: [id], onDelete: SetNull)
+  video  Video?           @relation(fields: [videoId], references: [id], onDelete: SetNull)
+  tag    VideoProductTag? @relation(fields: [tagId], references: [id], onDelete: SetNull)
+
+  @@index([shopId, eventType, occurredAt])
+}
+
+model WebhookDelivery {
+  id          String   @id @default(cuid())
+  shopId      String?
+  topic       String
+  deliveryId  String   @unique
+  processedAt DateTime @default(now())
+  payloadHash String
+
+  shop Shop? @relation(fields: [shopId], references: [id], onDelete: SetNull)
+
+  @@index([shopId, topic])
+}

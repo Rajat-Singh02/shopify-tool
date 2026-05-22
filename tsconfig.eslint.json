@@ -1,0 +1,21 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "allowJs": true,
+    "checkJs": false,
+    "noEmit": true,
+    "types": ["node", "vitest/globals", "@testing-library/jest-dom"]
+  },
+  "include": [
+    "apps/**/*.ts",
+    "apps/**/*.tsx",
+    "packages/**/*.ts",
+    "packages/**/*.tsx",
+    "workers/**/*.ts",
+    "tests/**/*.ts",
+    "eslint.config.js",
+    "playwright.config.ts",
+    "prisma.config.ts",
+    "vitest.config.ts"
+  ]
+}

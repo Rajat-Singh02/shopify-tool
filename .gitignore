@@ -1,0 +1,14 @@
+node_modules
+dist
+*.tsbuildinfo
+**/dist
+build
+.react-router
+coverage
+playwright-report
+test-results
+.env
+.env.*
+!.env.example
+packages/db/prisma/migrations/dev.db*
+storage

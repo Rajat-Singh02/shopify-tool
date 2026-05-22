@@ -1,0 +1,23 @@
+name = "Shoppable Video"
+client_id = "replace-me"
+application_url = "https://example.ngrok-free.app"
+embedded = true
+
+[build]
+automatically_update_urls_on_dev = true
+dev_store_url = ""
+
+[auth]
+redirect_urls = [
+  "https://example.ngrok-free.app/auth/callback"
+]
+
+[webhooks]
+api_version = "2026-04"
+
+[[webhooks.subscriptions]]
+topics = ["app/uninstalled"]
+uri = "/webhooks"
+
+[access_scopes]
+scopes = "read_products"
