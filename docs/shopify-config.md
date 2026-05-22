@@ -65,14 +65,13 @@ Do not commit real values for API keys or secrets.
 
 The Shopify auth path prefix is `/auth`.
 
-Expected redirect URL patterns:
+Canonical redirect URL pattern:
 
 ```txt
 https://<app-domain>/auth/callback
-https://<app-domain>/api/auth/callback
 ```
 
-Only keep redirect URLs that are actually implemented and used. The Vercel runtime rewrites `/auth/*` to the serverless function while preserving the Shopify auth path prefix for the Shopify auth helper.
+Only keep redirect URLs that are actually implemented and used. The Vercel runtime rewrites `/auth/*` to the nested `/api/auth/*` serverless function while preserving the Shopify auth path prefix for the Shopify auth helper. `/api/auth/*` is an internal Vercel destination, not the Partner Dashboard callback URL.
 
 ## App URL
 

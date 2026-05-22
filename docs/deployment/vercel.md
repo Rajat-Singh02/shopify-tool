@@ -35,19 +35,20 @@ The Vercel deployment uses two outputs:
 
 - Static client bundle: `apps/shopify-app/dist/client`, produced by `npm run build`.
 - Serverless runtime: `api/[...path].ts`, compiled by Vercel as a Node function.
-
-The serverless function delegates into `apps/shopify-app/server/vercel-runtime.ts`.
+- Nested auth runtime: `api/auth/[...path].ts`, which delegates to the same runtime so `/auth/callback` is handled by Vercel instead of falling through to static routing.
 
 Runtime routes:
 
 | Public path | Vercel destination | Runtime handler |
 | --- | --- | --- |
 | `/webhooks` | `/api/webhooks` | Shopify raw-body webhook handler |
-| `/api/admin/dashboard` | `/api/admin/dashboard` | Authenticated dashboard data handler |
+| `/api/admin/dashboard` | `/api/admin-dashboard` | Authenticated dashboard data handler |
 | `/auth/*` | `/api/auth/*` | Shopify React Router admin auth helper |
 | `/health` | `/api/health` | Health handler |
 
 `/webhooks` is rewritten so Shopify can use the configured webhook URL while Vercel still executes the catch-all API function. Webhook request bodies are read in the serverless function with Vercel body parsing disabled so Shopify HMAC verification receives the raw body.
+
+Use `/auth/callback` as the Shopify Partner Dashboard redirect URL. `/api/auth/*` is the internal Vercel destination created by the rewrite.
 
 ## Branch Mapping
 

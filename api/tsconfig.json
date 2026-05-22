@@ -7,6 +7,6 @@
     "outDir": "../dist/api",
     "rootDir": "."
   },
-  "include": ["*.ts"],
+  "include": ["**/*.ts"],
   "references": [{ "path": "../packages/db" }, { "path": "../packages/shopify" }]
 }
