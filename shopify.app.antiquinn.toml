@@ -1,0 +1,22 @@
+# Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
+
+client_id = "507ec4018317a9c292eed04878307f58"
+name = "ANTIQUINN"
+application_url = "https://shopify-tool-git-main-rajat-sahadev-s-projects.vercel.app"
+embedded = true
+
+[webhooks]
+api_version = "2024-10"
+
+  [[webhooks.subscriptions]]
+  uri = "/webhooks"
+  topics = [ "app/uninstalled" ]
+
+[access_scopes]
+# Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
+scopes = "read_products"
+
+[auth]
+redirect_urls = [
+  "https://shopify-tool-git-main-rajat-sahadev-s-projects.vercel.app/auth/callback"
+]
