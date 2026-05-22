@@ -9,5 +9,9 @@
     "types": ["vite/client", "vitest/globals", "@testing-library/jest-dom"]
   },
   "include": ["app", "routes", "components", "services", "lib", "test", "vite.config.ts"],
-  "references": [{ "path": "../../packages/shared" }]
+  "references": [
+    { "path": "../../packages/db" },
+    { "path": "../../packages/shared" },
+    { "path": "../../packages/shopify" }
+  ]
 }
