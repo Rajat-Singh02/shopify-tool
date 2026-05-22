@@ -39,4 +39,4 @@ export {
   isAppUninstalledTopic,
   normalizeShopifyWebhookTopic,
   type ShopifyWebhookTopic as ShopifyWebhookTopicValue,
-} from "./webhooks";
+} from "./webhooks.js";
