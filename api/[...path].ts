@@ -1,13 +1,15 @@
 import { createHash } from "node:crypto";
 import type { IncomingHttpHeaders, IncomingMessage, ServerResponse } from "node:http";
 
+import type * as VideoWorkerModule from "@shoppable-video/video-worker";
+
 import {
   getAdminAnalyticsSummary,
   listAdminAnalyticsEvents,
   AdminAnalyticsExpectedError,
   type AdminAnalyticsEventsResponse,
   type AdminAnalyticsSummaryResponse,
-} from "./admin-analytics.js";
+} from "../server/api/admin-analytics.js";
 import {
   attachAdminWidgetVideo,
   createAdminWidget,
@@ -18,7 +20,7 @@ import {
   AdminWidgetExpectedError,
   type AdminWidgetListResponse,
   type SafeAdminWidgetDto,
-} from "./admin-widgets.js";
+} from "../server/api/admin-widgets.js";
 import {
   archiveVideoLibraryItem,
   getVideoLibraryDetail,
@@ -26,18 +28,18 @@ import {
   VideoLibraryExpectedError,
   type SafeVideoLibraryDto,
   type VideoLibraryListResponse,
-} from "./video-library.js";
+} from "../server/api/video-library.js";
 import {
   createStorefrontWidgetBootstrapScript,
   getStorefrontWidgetPayload,
   StorefrontWidgetExpectedError,
   type PublicStorefrontWidgetPayload,
-} from "./storefront-widget.js";
+} from "../server/api/storefront-widget.js";
 import {
   ingestStorefrontAnalyticsEvent,
   StorefrontAnalyticsExpectedError,
   type StorefrontAnalyticsResponse,
-} from "./storefront-analytics.js";
+} from "../server/api/storefront-analytics.js";
 import {
   completeManualUpload,
   createManualUploadIntent,
@@ -50,7 +52,7 @@ import {
   type UploadIntentResult,
   type VideoProcessingDispatcher,
   type VideoUploadShop,
-} from "./video-upload.js";
+} from "../server/api/video-upload.js";
 import {
   createVideoProductTag,
   deleteVideoProductTag,
@@ -58,7 +60,7 @@ import {
   VideoProductTagExpectedError,
   type SafeVideoProductTagDto,
   type VideoProductTagsListResponse,
-} from "./video-product-tags.js";
+} from "../server/api/video-product-tags.js";
 
 export const config = {
   api: {
@@ -2140,18 +2142,16 @@ function createVideoProcessingDispatcherFromEnv(
   return {
     async dispatchVideoProcessingJob({ videoId }) {
       const { getPrismaClient, VideoRepository } = await import("@shoppable-video/db");
-      const { createLocalVideoStorageResolverFromEnv, processVideoJob } = await import(
-        "@shoppable-video/video-worker"
-      );
+      const videoWorker = (await import("@shoppable-video/video-worker")) as typeof VideoWorkerModule;
       const videoRepository = new VideoRepository(getPrismaClient());
 
-      await processVideoJob(
+      await videoWorker.processVideoJob(
         {
           videoId,
         },
         {
           videoRepository,
-          storageResolver: createLocalVideoStorageResolverFromEnv(env),
+          storageResolver: videoWorker.createLocalVideoStorageResolverFromEnv(env),
         },
       );
 

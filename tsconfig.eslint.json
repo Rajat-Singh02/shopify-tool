@@ -12,6 +12,7 @@
     "apps/**/*.tsx",
     "packages/**/*.ts",
     "packages/**/*.tsx",
+    "server/**/*.ts",
     "workers/**/*.ts",
     "tests/**/*.ts",
     "eslint.config.js",

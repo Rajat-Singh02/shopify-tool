@@ -28,6 +28,14 @@
     {
       "source": "/api/admin/products/search",
       "destination": "/api/admin-products-search"
+    },
+    {
+      "source": "/api/admin/:path*",
+      "destination": "/api/admin/[...path]"
+    },
+    {
+      "source": "/api/storefront/:path*",
+      "destination": "/api/storefront/[...path]"
     }
   ]
 }

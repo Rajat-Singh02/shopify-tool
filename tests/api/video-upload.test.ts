@@ -13,7 +13,7 @@ import {
   toSafeVideoDto,
   VideoUploadExpectedError,
   writeManualUploadObject,
-} from "../../api/video-upload";
+} from "../../server/api/video-upload";
 
 const env = {
   ALLOWED_VIDEO_MIME_TYPES: "video/mp4,video/webm",

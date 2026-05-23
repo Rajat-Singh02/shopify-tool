@@ -6,7 +6,7 @@ import {
   getAdminAnalyticsSummary,
   listAdminAnalyticsEvents,
   AdminAnalyticsExpectedError,
-} from "../../api/admin-analytics";
+} from "../../server/api/admin-analytics";
 
 const now = new Date("2026-05-23T00:00:00.000Z");
 const shop = {

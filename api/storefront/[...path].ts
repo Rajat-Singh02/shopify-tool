@@ -8,7 +8,7 @@ export default async function handler(
   request: IncomingMessage,
   response: ServerResponse,
 ): Promise<void> {
-  normalizeCatchAllUrl(request, "/api/auth");
+  normalizeCatchAllUrl(request, "/api/storefront");
   await handleNodeServerRequest(request, response);
 }
 
