@@ -10,6 +10,12 @@ import {
   type VideoLibraryListResponse,
 } from "./video-library.js";
 import {
+  createStorefrontWidgetBootstrapScript,
+  getStorefrontWidgetPayload,
+  StorefrontWidgetExpectedError,
+  type PublicStorefrontWidgetPayload,
+} from "./storefront-widget.js";
+import {
   completeManualUpload,
   createManualUploadIntent,
   createStorageProviderFromEnv,
@@ -42,6 +48,7 @@ type VercelRuntimeRoute =
   | "auth"
   | "health"
   | "product-search"
+  | "storefront-widget"
   | "video-library"
   | "video-product-tags"
   | "video-upload"
@@ -109,6 +116,7 @@ type RuntimeDependencies = {
   authenticateWebhook?: (request: Request) => Promise<WebhookContext>;
   handleAdminDashboard?: (request: Request) => Promise<Response>;
   handleProductSearch?: (request: Request) => Promise<Response>;
+  handleStorefrontWidget?: (request: Request) => Promise<Response>;
   handleVideoLibrary?: (request: Request) => Promise<Response>;
   handleVideoProductTags?: (request: Request) => Promise<Response>;
   handleVideoUpload?: (request: Request) => Promise<Response>;
@@ -120,6 +128,10 @@ type RuntimeDependencies = {
     session: ProductSearchSession,
     input: ProductSearchInput,
   ) => Promise<ProductSearchResponse>;
+  loadStorefrontWidget?: (
+    shopDomain: string,
+    widgetId: string,
+  ) => Promise<PublicStorefrontWidgetPayload>;
   createUploadIntent?: (
     shop: VideoUploadShop,
     input: unknown,
@@ -171,6 +183,10 @@ export default async function handler(
 }
 
 export function resolveVercelRuntimeRoute(pathname: string): VercelRuntimeRoute {
+  if (pathname === "/widget.js" || /^\/api\/storefront\/widgets\/[^/]+$/.test(pathname)) {
+    return "storefront-widget";
+  }
+
   if (pathname === "/api/admin/dashboard" || pathname === "/api/admin-dashboard") {
     return "admin-dashboard";
   }
@@ -250,6 +266,10 @@ export async function handleVercelRuntimeRequest(
 
   if (route === "product-search") {
     return handleProductSearchRequest(request, dependencies);
+  }
+
+  if (route === "storefront-widget") {
+    return handleStorefrontWidgetRequest(request, dependencies);
   }
 
   if (route === "video-library") {
@@ -511,6 +531,104 @@ function logProductSearchError(error: unknown): void {
 function productSearchFailureResponse(
   status: number,
   message = "We could not search Shopify products. Reload the app from Shopify admin.",
+): Response {
+  return Response.json(
+    {
+      message,
+    },
+    {
+      status,
+      headers: {
+        "Cache-Control": "no-store",
+      },
+    },
+  );
+}
+
+async function handleStorefrontWidgetRequest(
+  request: Request,
+  { handleStorefrontWidget, loadStorefrontWidget }: RuntimeDependencies,
+): Promise<Response> {
+  if (handleStorefrontWidget) {
+    return handleStorefrontWidget(request);
+  }
+
+  const url = new URL(request.url);
+
+  if (url.pathname === "/widget.js") {
+    if (request.method !== "GET" && request.method !== "HEAD") {
+      return storefrontWidgetFailureResponse(405, "Widget script only supports GET requests.");
+    }
+
+    return new Response(createStorefrontWidgetBootstrapScript(), {
+      headers: {
+        "Cache-Control": "public, max-age=300",
+        "Content-Type": "application/javascript; charset=utf-8",
+      },
+    });
+  }
+
+  if (request.method !== "GET" && request.method !== "HEAD") {
+    return storefrontWidgetFailureResponse(405, "Storefront widget only supports GET requests.");
+  }
+
+  try {
+    const widgetId = parseStorefrontWidgetId(url.pathname);
+    const shopDomain = url.searchParams.get("shop");
+    const result = loadStorefrontWidget
+      ? await loadStorefrontWidget(shopDomain ?? "", widgetId)
+      : await loadStorefrontWidgetFromDatabase(shopDomain ?? "", widgetId);
+
+    return Response.json(result, {
+      headers: {
+        "Cache-Control": "public, max-age=60",
+      },
+    });
+  } catch (error) {
+    if (error instanceof StorefrontWidgetExpectedError) {
+      return storefrontWidgetFailureResponse(error.status, error.clientMessage);
+    }
+
+    logStorefrontWidgetError(error);
+    return storefrontWidgetFailureResponse(500);
+  }
+}
+
+function parseStorefrontWidgetId(pathname: string): string {
+  const match = pathname.match(/^\/api\/storefront\/widgets\/([^/]+)$/);
+
+  if (!match?.[1]) {
+    throw new StorefrontWidgetExpectedError("Widget was not found", 404);
+  }
+
+  return decodeURIComponent(match[1]);
+}
+
+async function loadStorefrontWidgetFromDatabase(
+  shopDomain: string,
+  widgetId: string,
+): Promise<PublicStorefrontWidgetPayload> {
+  const { getPrismaClient, WidgetRepository } = await import("@shoppable-video/db");
+
+  return getStorefrontWidgetPayload({
+    shop: shopDomain,
+    widgetId,
+    widgetRepository: new WidgetRepository(getPrismaClient()),
+  });
+}
+
+function logStorefrontWidgetError(error: unknown): void {
+  const reason = error instanceof Error ? error.name : "UnknownStorefrontWidgetError";
+
+  console.error("Failed to handle storefront widget request", {
+    operation: "storefront.widget",
+    reason,
+  });
+}
+
+function storefrontWidgetFailureResponse(
+  status: number,
+  message = "We could not load the storefront widget.",
 ): Response {
   return Response.json(
     {

@@ -8,6 +8,7 @@ import {
   handleVercelRuntimeRequest,
   resolveVercelRuntimeRoute,
 } from "./[...path]";
+import { StorefrontWidgetExpectedError } from "./storefront-widget";
 
 describe("Vercel runtime route surface", () => {
   afterEach(() => {
@@ -33,6 +34,8 @@ describe("Vercel runtime route surface", () => {
     ["/api/admin/videos/video_1/upload", "video-upload"],
     ["/api/admin/videos/video_1/complete-upload", "video-upload"],
     ["/api/admin-videos/upload-intent", "video-upload"],
+    ["/widget.js", "storefront-widget"],
+    ["/api/storefront/widgets/widget_1", "storefront-widget"],
     ["/api/webhooks", "webhook"],
     ["/webhooks", "webhook"],
     ["/api/auth/callback", "auth"],
@@ -229,6 +232,100 @@ describe("Vercel runtime route surface", () => {
     expect(serializedBody).not.toContain("accessToken");
     expect(serializedBody).not.toContain("session");
     expect(serializedBody).not.toContain("SHOPIFY_API_SECRET");
+  });
+
+  it("serves the public storefront widget bootstrap script", async () => {
+    const response = await handleVercelRuntimeRequest(
+      new Request("https://app.example.test/widget.js"),
+    );
+    const script = await response.text();
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Content-Type")).toContain("application/javascript");
+    expect(script).toContain("data-shop");
+    expect(script).toContain("data-widget-id");
+    expect(script).not.toContain("SHOPIFY_API_SECRET");
+    expect(script).not.toContain("DATABASE_URL");
+    expect(script).not.toContain("accessToken");
+  });
+
+  it("serves a public storefront widget payload without admin auth", async () => {
+    const loadStorefrontWidget = vi.fn().mockResolvedValue({
+      widget: {
+        id: "widget_1",
+        shopDomain: "test-shop.myshopify.com",
+        title: "Homepage videos",
+        status: "PUBLISHED",
+        layout: "INLINE_CAROUSEL",
+      },
+      videos: [
+        {
+          id: "video_1",
+          status: "READY",
+          source: "MANUAL_UPLOAD",
+          contentType: "video/mp4",
+          durationMs: 12345,
+          width: 1920,
+          height: 1080,
+          publicUrl: null,
+          tags: [
+            {
+              productId: "gid://shopify/Product/1",
+              variantId: "gid://shopify/ProductVariant/1",
+              productTitle: "Linen Shirt",
+              variantTitle: "Small",
+              sku: null,
+            },
+          ],
+        },
+      ],
+    });
+    const response = await handleVercelRuntimeRequest(
+      new Request(
+        "https://app.example.test/api/storefront/widgets/widget_1?shop=test-shop.myshopify.com",
+      ),
+      {
+        loadStorefrontWidget,
+      },
+    );
+    const body = (await response.json()) as {
+      widget: { id: string };
+      videos: Array<{ tags: Array<{ productTitle: string }> }>;
+    };
+    const serializedBody = JSON.stringify(body);
+
+    expect(response.status).toBe(200);
+    expect(body.widget.id).toBe("widget_1");
+    expect(body.videos[0]?.tags[0]?.productTitle).toBe("Linen Shirt");
+    expect(loadStorefrontWidget).toHaveBeenCalledWith("test-shop.myshopify.com", "widget_1");
+    expect(serializedBody).not.toContain("accessToken");
+    expect(serializedBody).not.toContain("session");
+    expect(serializedBody).not.toContain("DATABASE_URL");
+    expect(serializedBody).not.toContain("/tmp/shoppable-video-storage");
+  });
+
+  it("returns safe storefront widget errors for invalid or missing widgets", async () => {
+    const invalidShopResponse = await handleVercelRuntimeRequest(
+      new Request("https://app.example.test/api/storefront/widgets/widget_1?shop=not-a-shop"),
+    );
+    const missingWidgetResponse = await handleVercelRuntimeRequest(
+      new Request(
+        "https://app.example.test/api/storefront/widgets/widget_1?shop=test-shop.myshopify.com",
+      ),
+      {
+        loadStorefrontWidget() {
+          return Promise.reject(new StorefrontWidgetExpectedError("Widget was not found", 404));
+        },
+      },
+    );
+    const invalidShopBody = (await invalidShopResponse.json()) as { message: string };
+    const missingWidgetBody = (await missingWidgetResponse.json()) as { message: string };
+    const serializedMissingWidgetBody = JSON.stringify(missingWidgetBody);
+
+    expect(invalidShopResponse.status).toBe(400);
+    expect(invalidShopBody.message).toBe("shop is invalid");
+    expect(missingWidgetResponse.status).toBe(404);
+    expect(serializedMissingWidgetBody).not.toContain("raw missing widget details");
   });
 
   it("returns a safe setup response when no offline Shopify session exists", async () => {
