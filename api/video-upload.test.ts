@@ -2,7 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { VideoRecord } from "@shoppable-video/db";
 
@@ -217,5 +217,109 @@ describe("manual video upload services", () => {
       completeManualUpload({ video, videoRepository, storageProvider: provider }),
     ).resolves.toEqual(toSafeVideoDto(video));
     expect(updated).toBe(true);
+  });
+
+  it("dispatches processing after upload completion and returns the processed state", async () => {
+    tempDir = await mkdtemp(path.join(tmpdir(), "shoppable-video-upload-"));
+    const provider = new LocalStorageProvider(tempDir);
+    const video = createVideo();
+    const processedVideo = createVideo({
+      status: "READY",
+      durationMs: 1234,
+      width: 1280,
+      height: 720,
+    });
+    const dispatcher = {
+      dispatchVideoProcessingJob: vi.fn().mockResolvedValue(toSafeVideoDto(processedVideo)),
+    };
+
+    await provider.writeObject({
+      key: video.storageKeyOriginal ?? "",
+      body: new Uint8Array([1, 2, 3, 4]),
+      contentType: "video/mp4",
+    });
+
+    const result = await completeManualUpload({
+      video,
+      videoRepository: {
+        markOriginalUploadComplete(input: VideoRecord) {
+          return Promise.resolve(input);
+        },
+      },
+      storageProvider: provider,
+      processingDispatcher: dispatcher,
+    });
+    const serialized = JSON.stringify(result);
+
+    expect(dispatcher.dispatchVideoProcessingJob).toHaveBeenCalledWith({
+      videoId: "video_1",
+    });
+    expect(result.status).toBe("READY");
+    expect(serialized).not.toContain("storageKeyOriginal");
+    expect(serialized).not.toContain(tempDir);
+    expect(serialized).not.toContain("accessToken");
+    expect(serialized).not.toContain("DATABASE_URL");
+  });
+
+  it("does not dispatch duplicate processing for already processing or ready videos", async () => {
+    tempDir = await mkdtemp(path.join(tmpdir(), "shoppable-video-upload-"));
+    const provider = new LocalStorageProvider(tempDir);
+    const dispatcher = {
+      dispatchVideoProcessingJob: vi.fn(),
+    };
+    const videoRepository = {
+      markOriginalUploadComplete() {
+        throw new Error("should not mark repeated completion");
+      },
+    };
+
+    await expect(
+      completeManualUpload({
+        video: createVideo({ status: "PROCESSING" }),
+        videoRepository,
+        storageProvider: provider,
+        processingDispatcher: dispatcher,
+      }),
+    ).resolves.toMatchObject({ status: "PROCESSING" });
+    await expect(
+      completeManualUpload({
+        video: createVideo({ status: "READY" }),
+        videoRepository,
+        storageProvider: provider,
+        processingDispatcher: dispatcher,
+      }),
+    ).resolves.toMatchObject({ status: "READY" });
+
+    expect(dispatcher.dispatchVideoProcessingJob).not.toHaveBeenCalled();
+  });
+
+  it("converts processing dispatch failures into a safe upload error", async () => {
+    tempDir = await mkdtemp(path.join(tmpdir(), "shoppable-video-upload-"));
+    const provider = new LocalStorageProvider(tempDir);
+    const video = createVideo();
+
+    await provider.writeObject({
+      key: video.storageKeyOriginal ?? "",
+      body: new Uint8Array([1, 2, 3, 4]),
+      contentType: "video/mp4",
+    });
+
+    await expect(
+      completeManualUpload({
+        video,
+        videoRepository: {
+          markOriginalUploadComplete(input: VideoRecord) {
+            return Promise.resolve(input);
+          },
+        },
+        storageProvider: provider,
+        processingDispatcher: {
+          dispatchVideoProcessingJob: vi.fn().mockRejectedValue(new Error("private /tmp/path")),
+        },
+      }),
+    ).rejects.toMatchObject({
+      status: 500,
+      clientMessage: "We could not start video processing. Try completing the upload again.",
+    });
   });
 });

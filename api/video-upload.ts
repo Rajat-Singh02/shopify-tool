@@ -36,6 +36,10 @@ export type StorageProvider = {
   objectExists(key: string): Promise<boolean>;
 };
 
+export type VideoProcessingDispatcher = {
+  dispatchVideoProcessingJob(job: { videoId: string }): Promise<SafeVideoDto>;
+};
+
 export type UploadIntentResult = {
   video: SafeVideoDto;
   upload: {
@@ -236,11 +240,17 @@ export async function completeManualUpload({
   video,
   videoRepository,
   storageProvider,
+  processingDispatcher,
 }: {
   video: VideoRecord;
   videoRepository: Pick<VideoRepository, "markOriginalUploadComplete">;
   storageProvider: StorageProvider;
+  processingDispatcher?: VideoProcessingDispatcher;
 }): Promise<SafeVideoDto> {
+  if (video.status !== "UPLOADED") {
+    return toSafeVideoDto(video);
+  }
+
   if (!video.storageKeyOriginal) {
     throw new VideoUploadExpectedError("Video upload target is missing", 500);
   }
@@ -251,7 +261,27 @@ export async function completeManualUpload({
     throw new VideoUploadExpectedError("Uploaded video object was not found", 400);
   }
 
-  return toSafeVideoDto(await videoRepository.markOriginalUploadComplete(video));
+  const completedVideo = await videoRepository.markOriginalUploadComplete(video);
+
+  if (!processingDispatcher) {
+    return toSafeVideoDto(completedVideo);
+  }
+
+  try {
+    return await processingDispatcher.dispatchVideoProcessingJob({
+      videoId: completedVideo.id,
+    });
+  } catch (error) {
+    if (error instanceof VideoUploadExpectedError) {
+      throw error;
+    }
+
+    throw new VideoUploadExpectedError(
+      "Video processing could not be started",
+      500,
+      "We could not start video processing. Try completing the upload again.",
+    );
+  }
 }
 
 export function toSafeVideoDto(video: VideoRecord): SafeVideoDto {

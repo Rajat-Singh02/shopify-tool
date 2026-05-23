@@ -30,3 +30,11 @@ The extractor also parses safe container and codec metadata for future use, but 
 Use `execFile`-style process execution for `ffprobe`; do not shell-interpolate file paths. Storage resolvers must validate object keys and must not expose local filesystem paths to clients.
 
 Future queue work should call `processVideoJob` after upload completion and pass the existing repository and storage provider dependencies.
+
+## Upload Completion Dispatch
+
+Feature 4B wires manual upload completion into the processing seam. In local and preview environments, `QUEUE_PROVIDER=memory` dispatches processing inline after `complete-upload` verifies the stored object exists.
+
+Repeated `complete-upload` requests are idempotent for videos that are already `PROCESSING`, `READY`, or `FAILED`; they return the current safe video state instead of dispatching duplicate work.
+
+External queues are still intentionally out of scope. A future queue provider can implement the same dispatch contract without changing the upload endpoint shape.
