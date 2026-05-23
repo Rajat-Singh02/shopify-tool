@@ -10,6 +10,7 @@ export default tseslint.config(
       "dist/**",
       "**/dist/**",
       "build/**",
+      ".vercel/**",
       ".react-router/**",
       "coverage/**",
       "playwright-report/**",
