@@ -5,11 +5,13 @@ import {
   completeManualUpload,
   createManualUploadIntent,
   createStorageProviderFromEnv,
+  toSafeVideoDto,
   VideoUploadExpectedError,
   writeManualUploadObject,
   type SafeVideoDto,
   type StorageProvider,
   type UploadIntentResult,
+  type VideoProcessingDispatcher,
   type VideoUploadShop,
 } from "./video-upload.js";
 
@@ -108,6 +110,10 @@ type RuntimeDependencies = {
     request: Request,
   ) => Promise<SafeVideoDto>;
   completeUpload?: (shop: VideoUploadShop, videoId: string) => Promise<SafeVideoDto>;
+  dispatchVideoProcessingJob?: (
+    shop: VideoUploadShop,
+    videoId: string,
+  ) => Promise<SafeVideoDto>;
 };
 
 type DashboardDiagnosticError = Error & {
@@ -467,6 +473,7 @@ async function handleVideoUploadRequest(
     createUploadIntent,
     writeUploadObject,
     completeUpload,
+    dispatchVideoProcessingJob,
   }: RuntimeDependencies,
 ): Promise<Response> {
   if (handleVideoUpload) {
@@ -532,7 +539,18 @@ async function handleVideoUploadRequest(
 
     const video = completeUpload
       ? await completeUpload(shop, action.videoId)
-      : await completeUploadWithDatabase(shop, action.videoId);
+      : await completeUploadWithDatabase(
+          shop,
+          action.videoId,
+          createStorageProviderFromEnv(),
+          dispatchVideoProcessingJob
+            ? {
+                dispatchVideoProcessingJob({ videoId }) {
+                  return dispatchVideoProcessingJob(shop, videoId);
+                },
+              }
+            : createVideoProcessingDispatcherFromEnv(),
+        );
 
     return Response.json(
       {
@@ -646,6 +664,7 @@ async function completeUploadWithDatabase(
   shop: VideoUploadShop,
   videoId: string,
   storageProvider: StorageProvider = createStorageProviderFromEnv(),
+  processingDispatcher: VideoProcessingDispatcher = createVideoProcessingDispatcherFromEnv(),
 ): Promise<SafeVideoDto> {
   const { getPrismaClient, VideoRepository } = await import("@shoppable-video/db");
   const videoRepository = new VideoRepository(getPrismaClient());
@@ -659,7 +678,46 @@ async function completeUploadWithDatabase(
     video,
     videoRepository,
     storageProvider,
+    processingDispatcher,
   });
+}
+
+function createVideoProcessingDispatcherFromEnv(
+  env: NodeJS.ProcessEnv = process.env,
+): VideoProcessingDispatcher {
+  const queueProvider = (env.QUEUE_PROVIDER ?? "memory").trim().toLowerCase();
+
+  if (queueProvider !== "memory") {
+    throw new VideoUploadExpectedError("Unsupported video processing queue provider", 500);
+  }
+
+  return {
+    async dispatchVideoProcessingJob({ videoId }) {
+      const { getPrismaClient, VideoRepository } = await import("@shoppable-video/db");
+      const { createLocalVideoStorageResolverFromEnv, processVideoJob } = await import(
+        "@shoppable-video/video-worker"
+      );
+      const videoRepository = new VideoRepository(getPrismaClient());
+
+      await processVideoJob(
+        {
+          videoId,
+        },
+        {
+          videoRepository,
+          storageResolver: createLocalVideoStorageResolverFromEnv(env),
+        },
+      );
+
+      const processedVideo = await videoRepository.findById(videoId);
+
+      if (!processedVideo) {
+        throw new VideoUploadExpectedError("Video was not found", 404);
+      }
+
+      return toSafeVideoDto(processedVideo);
+    },
+  };
 }
 
 function logVideoUploadError(error: unknown): void {
