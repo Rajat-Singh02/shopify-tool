@@ -6,6 +6,7 @@ import { AppErrorBoundary } from "../components/AppErrorBoundary";
 import { AppNavigation } from "../components/AppNavigation";
 import { DashboardPage } from "../routes/DashboardPage";
 import { ProductsPage } from "../routes/ProductsPage";
+import { VideosPage } from "../routes/VideosPage";
 import {
   ADMIN_SHELL_SAFE_ERROR_MESSAGE,
   fetchAdminDashboardContext,
@@ -13,17 +14,20 @@ import {
   type AdminDashboardState,
 } from "../services/admin-shell";
 import type { ProductSearchClient } from "../services/product-search";
+import type { VideoUploadClient } from "../services/video-upload";
 
 type AppProps = {
   initialDashboardState?: AdminDashboardState;
   loadDashboardContext?: AdminDashboardContextLoader;
   searchProducts?: ProductSearchClient;
+  uploadVideo?: VideoUploadClient;
 };
 
 export function App({
   initialDashboardState,
   loadDashboardContext = fetchAdminDashboardContext,
   searchProducts,
+  uploadVideo,
 }: AppProps) {
   const [dashboardState, setDashboardState] = useState<AdminDashboardState>(
     initialDashboardState ?? { status: "loading" },
@@ -62,6 +66,7 @@ export function App({
         <Routes>
           <Route path="/" element={<DashboardPage dashboardState={dashboardState} />} />
           <Route path="/products" element={<ProductsPage searchProducts={searchProducts} />} />
+          <Route path="/videos" element={<VideosPage uploadVideo={uploadVideo} />} />
         </Routes>
       </Frame>
     </AppErrorBoundary>
