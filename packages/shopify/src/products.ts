@@ -18,7 +18,6 @@ export const SHOPIFY_PRODUCT_SEARCH_QUERY = `#graphql
               title
               sku
               price
-              inventoryQuantity
             }
           }
         }

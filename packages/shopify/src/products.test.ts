@@ -128,4 +128,8 @@ describe("Shopify product search helpers", () => {
       query: "title: unsafe",
     });
   });
+
+  it("does not request inventory fields that can require stricter Shopify permissions", () => {
+    expect(SHOPIFY_PRODUCT_SEARCH_QUERY).not.toContain("inventoryQuantity");
+  });
 });
