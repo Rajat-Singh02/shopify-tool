@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { App } from "../app/App";
 import { ADMIN_SHELL_SAFE_ERROR_MESSAGE } from "../services/admin-shell";
 import { PRODUCT_SEARCH_SAFE_ERROR_MESSAGE } from "../services/product-search";
+import { VIDEO_UPLOAD_SAFE_ERROR_MESSAGE } from "../services/video-upload";
 
 const readyDashboardState = {
   status: "ready" as const,
@@ -230,5 +231,111 @@ describe("admin app shell", () => {
       first: 20,
       after: "cursor-1",
     });
+  });
+
+  it("renders the videos upload page and uploads a selected video", async () => {
+    const uploadVideo = vi.fn().mockResolvedValue({
+      video: {
+        id: "video_1",
+        status: "UPLOADED",
+        source: "MANUAL_UPLOAD",
+        originalFilename: "demo.mp4",
+        contentType: "video/mp4",
+        sizeBytes: 4,
+      },
+    });
+    const file = new File([new Uint8Array([1, 2, 3, 4])], "demo.mp4", {
+      type: "video/mp4",
+    });
+    renderApp(
+      <App initialDashboardState={readyDashboardState} uploadVideo={uploadVideo} />,
+      ["/videos"],
+    );
+
+    expect(screen.getByRole("heading", { name: "Videos" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Upload video" })).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
+
+    fireEvent.change(screen.getByLabelText("Video file"), {
+      target: {
+        files: [file],
+      },
+    });
+
+    expect(screen.getByText("demo.mp4")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Upload video" })).not.toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Upload video" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Video video_1 is UPLOADED.")).toBeInTheDocument();
+    });
+
+    expect(uploadVideo).toHaveBeenCalledWith(file);
+    expect(document.body.textContent).not.toContain("shopify-id-token");
+    expect(document.body.textContent).not.toContain("SHOPIFY_API_SECRET");
+  });
+
+  it("shows video upload validation errors without calling the API", () => {
+    const uploadVideo = vi.fn();
+    const file = new File([new Uint8Array([1, 2, 3, 4])], "demo.pdf", {
+      type: "application/pdf",
+    });
+    renderApp(
+      <App initialDashboardState={readyDashboardState} uploadVideo={uploadVideo} />,
+      ["/videos"],
+    );
+
+    fireEvent.change(screen.getByLabelText("Video file"), {
+      target: {
+        files: [file],
+      },
+    });
+
+    expect(screen.getByText("Video file unavailable")).toBeInTheDocument();
+    expect(screen.getByText("Choose an MP4, MOV, or WebM video file.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Upload video" })).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
+    expect(uploadVideo).not.toHaveBeenCalled();
+  });
+
+  it("shows video upload loading and safe backend error states", async () => {
+    const uploadVideo = vi.fn(
+      () =>
+        new Promise<never>((_, reject) => {
+          setTimeout(() => reject(new Error("raw backend upload failure")), 10);
+        }),
+    );
+    const file = new File([new Uint8Array([1, 2, 3, 4])], "demo.mp4", {
+      type: "video/mp4",
+    });
+    renderApp(
+      <App initialDashboardState={readyDashboardState} uploadVideo={uploadVideo} />,
+      ["/videos"],
+    );
+
+    fireEvent.change(screen.getByLabelText("Video file"), {
+      target: {
+        files: [file],
+      },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Upload video" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Uploading video")).toBeInTheDocument();
+    });
+    await waitFor(() => {
+      expect(screen.getByText("Video upload failed")).toBeInTheDocument();
+    });
+
+    expect(screen.getByText(VIDEO_UPLOAD_SAFE_ERROR_MESSAGE)).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain("raw backend upload failure");
   });
 });
