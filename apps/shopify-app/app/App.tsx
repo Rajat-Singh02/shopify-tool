@@ -7,12 +7,21 @@ import { AppNavigation } from "../components/AppNavigation";
 import { DashboardPage } from "../routes/DashboardPage";
 import { ProductsPage } from "../routes/ProductsPage";
 import { VideosPage } from "../routes/VideosPage";
+import { WidgetsPage } from "../routes/WidgetsPage";
 import {
   ADMIN_SHELL_SAFE_ERROR_MESSAGE,
   fetchAdminDashboardContext,
   type AdminDashboardContextLoader,
   type AdminDashboardState,
 } from "../services/admin-shell";
+import type {
+  AdminWidgetAttachVideoClient,
+  AdminWidgetCreateClient,
+  AdminWidgetDetachVideoClient,
+  AdminWidgetDetailClient,
+  AdminWidgetListClient,
+  AdminWidgetUpdateClient,
+} from "../services/admin-widgets";
 import type { ProductSearchClient } from "../services/product-search";
 import type {
   VideoArchiveClient,
@@ -37,6 +46,12 @@ type AppProps = {
   createVideoProductTag?: CreateVideoProductTagClient;
   deleteVideoProductTag?: DeleteVideoProductTagClient;
   uploadVideo?: VideoUploadClient;
+  loadWidgets?: AdminWidgetListClient;
+  createWidget?: AdminWidgetCreateClient;
+  loadWidgetDetail?: AdminWidgetDetailClient;
+  updateWidget?: AdminWidgetUpdateClient;
+  attachWidgetVideo?: AdminWidgetAttachVideoClient;
+  detachWidgetVideo?: AdminWidgetDetachVideoClient;
 };
 
 export function App({
@@ -50,6 +65,12 @@ export function App({
   createVideoProductTag,
   deleteVideoProductTag,
   uploadVideo,
+  loadWidgets,
+  createWidget,
+  loadWidgetDetail,
+  updateWidget,
+  attachWidgetVideo,
+  detachWidgetVideo,
 }: AppProps) {
   const [dashboardState, setDashboardState] = useState<AdminDashboardState>(
     initialDashboardState ?? { status: "loading" },
@@ -100,6 +121,23 @@ export function App({
                 loadVideoProductTags={loadVideoProductTags}
                 createVideoProductTag={createVideoProductTag}
                 deleteVideoProductTag={deleteVideoProductTag}
+              />
+            }
+          />
+          <Route
+            path="/widgets"
+            element={
+              <WidgetsPage
+                shopDomain={
+                  dashboardState.status === "ready" ? dashboardState.data.shop.domain : undefined
+                }
+                loadWidgets={loadWidgets}
+                createWidget={createWidget}
+                loadWidgetDetail={loadWidgetDetail}
+                updateWidget={updateWidget}
+                attachVideo={attachWidgetVideo}
+                detachVideo={detachWidgetVideo}
+                loadVideoLibrary={loadVideoLibrary}
               />
             }
           />

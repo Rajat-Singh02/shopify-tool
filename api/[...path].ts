@@ -2,6 +2,17 @@ import { createHash } from "node:crypto";
 import type { IncomingHttpHeaders, IncomingMessage, ServerResponse } from "node:http";
 
 import {
+  attachAdminWidgetVideo,
+  createAdminWidget,
+  detachAdminWidgetVideo,
+  getAdminWidget,
+  listAdminWidgets,
+  updateAdminWidget,
+  AdminWidgetExpectedError,
+  type AdminWidgetListResponse,
+  type SafeAdminWidgetDto,
+} from "./admin-widgets.js";
+import {
   archiveVideoLibraryItem,
   getVideoLibraryDetail,
   listVideoLibrary,
@@ -45,6 +56,7 @@ export const config = {
 
 type VercelRuntimeRoute =
   | "admin-dashboard"
+  | "admin-widget"
   | "auth"
   | "health"
   | "product-search"
@@ -115,6 +127,7 @@ type RuntimeDependencies = {
   authenticateAdmin?: (request: Request) => Promise<AdminAuthResult>;
   authenticateWebhook?: (request: Request) => Promise<WebhookContext>;
   handleAdminDashboard?: (request: Request) => Promise<Response>;
+  handleAdminWidget?: (request: Request) => Promise<Response>;
   handleProductSearch?: (request: Request) => Promise<Response>;
   handleStorefrontWidget?: (request: Request) => Promise<Response>;
   handleVideoLibrary?: (request: Request) => Promise<Response>;
@@ -132,6 +145,24 @@ type RuntimeDependencies = {
     shopDomain: string,
     widgetId: string,
   ) => Promise<PublicStorefrontWidgetPayload>;
+  listAdminWidgets?: (shop: VideoUploadShop) => Promise<AdminWidgetListResponse>;
+  createAdminWidget?: (shop: VideoUploadShop, input: unknown) => Promise<SafeAdminWidgetDto>;
+  getAdminWidget?: (shop: VideoUploadShop, widgetId: string) => Promise<SafeAdminWidgetDto>;
+  updateAdminWidget?: (
+    shop: VideoUploadShop,
+    widgetId: string,
+    input: unknown,
+  ) => Promise<SafeAdminWidgetDto>;
+  attachAdminWidgetVideo?: (
+    shop: VideoUploadShop,
+    widgetId: string,
+    input: unknown,
+  ) => Promise<SafeAdminWidgetDto>;
+  detachAdminWidgetVideo?: (
+    shop: VideoUploadShop,
+    widgetId: string,
+    videoId: string,
+  ) => Promise<{ detached: true }>;
   createUploadIntent?: (
     shop: VideoUploadShop,
     input: unknown,
@@ -189,6 +220,13 @@ export function resolveVercelRuntimeRoute(pathname: string): VercelRuntimeRoute 
 
   if (pathname === "/api/admin/dashboard" || pathname === "/api/admin-dashboard") {
     return "admin-dashboard";
+  }
+
+  if (
+    pathname === "/api/admin/widgets" ||
+    /^\/api\/admin\/widgets\/[^/]+(?:\/videos(?:\/[^/]+)?)?$/.test(pathname)
+  ) {
+    return "admin-widget";
   }
 
   if (
@@ -262,6 +300,10 @@ export async function handleVercelRuntimeRequest(
 
   if (route === "admin-dashboard") {
     return handleAdminDashboardRequest(request, dependencies);
+  }
+
+  if (route === "admin-widget") {
+    return handleAdminWidgetRequest(request, dependencies);
   }
 
   if (route === "product-search") {
@@ -531,6 +573,332 @@ function logProductSearchError(error: unknown): void {
 function productSearchFailureResponse(
   status: number,
   message = "We could not search Shopify products. Reload the app from Shopify admin.",
+): Response {
+  return Response.json(
+    {
+      message,
+    },
+    {
+      status,
+      headers: {
+        "Cache-Control": "no-store",
+      },
+    },
+  );
+}
+
+async function handleAdminWidgetRequest(
+  request: Request,
+  {
+    authenticateAdmin,
+    attachAdminWidgetVideo: attachVideo,
+    createAdminWidget: createWidget,
+    detachAdminWidgetVideo: detachVideo,
+    getAdminWidget: getWidget,
+    handleAdminWidget,
+    listAdminWidgets: listWidgets,
+    loadVideoUploadShop,
+    updateAdminWidget: updateWidget,
+  }: RuntimeDependencies,
+): Promise<Response> {
+  if (handleAdminWidget) {
+    return handleAdminWidget(request);
+  }
+
+  if (!authenticateAdmin && !hasBearerAuthorization(request)) {
+    return adminWidgetFailureResponse(410);
+  }
+
+  let authenticated = false;
+
+  try {
+    const authResult = await authenticateDashboardRequest(request, authenticateAdmin);
+    authenticated = true;
+    const shop = loadVideoUploadShop
+      ? await loadVideoUploadShop(authResult.session.shop)
+      : await loadVideoUploadShopFromDatabase(authResult.session.shop);
+    const action = parseAdminWidgetAction(request);
+
+    if (action.kind === "list") {
+      if (request.method !== "GET") {
+        return adminWidgetFailureResponse(405, "Widget listing only supports GET requests.");
+      }
+
+      const result = listWidgets
+        ? await listWidgets(shop)
+        : await listAdminWidgetsWithDatabase(shop);
+
+      return Response.json(result, {
+        headers: {
+          "Cache-Control": "no-store",
+        },
+      });
+    }
+
+    if (action.kind === "create") {
+      if (request.method !== "POST") {
+        return adminWidgetFailureResponse(405, "Widget creation only supports POST requests.");
+      }
+
+      const body = await parseAdminWidgetJsonRequestBody(request);
+      const widget = createWidget
+        ? await createWidget(shop, body)
+        : await createAdminWidgetWithDatabase(shop, body);
+
+      return Response.json(
+        {
+          widget,
+        },
+        {
+          status: 201,
+          headers: {
+            "Cache-Control": "no-store",
+          },
+        },
+      );
+    }
+
+    if (action.kind === "detail") {
+      if (request.method !== "GET") {
+        return adminWidgetFailureResponse(405, "Widget detail only supports GET requests.");
+      }
+
+      const widget = getWidget
+        ? await getWidget(shop, action.widgetId)
+        : await getAdminWidgetWithDatabase(shop, action.widgetId);
+
+      return Response.json(
+        {
+          widget,
+        },
+        {
+          headers: {
+            "Cache-Control": "no-store",
+          },
+        },
+      );
+    }
+
+    if (action.kind === "update") {
+      if (request.method !== "PATCH") {
+        return adminWidgetFailureResponse(405, "Widget update only supports PATCH requests.");
+      }
+
+      const body = await parseAdminWidgetJsonRequestBody(request);
+      const widget = updateWidget
+        ? await updateWidget(shop, action.widgetId, body)
+        : await updateAdminWidgetWithDatabase(shop, action.widgetId, body);
+
+      return Response.json(
+        {
+          widget,
+        },
+        {
+          headers: {
+            "Cache-Control": "no-store",
+          },
+        },
+      );
+    }
+
+    if (action.kind === "attach-video") {
+      if (request.method !== "POST") {
+        return adminWidgetFailureResponse(405, "Widget video attach only supports POST requests.");
+      }
+
+      const body = await parseAdminWidgetJsonRequestBody(request);
+      const widget = attachVideo
+        ? await attachVideo(shop, action.widgetId, body)
+        : await attachAdminWidgetVideoWithDatabase(shop, action.widgetId, body);
+
+      return Response.json(
+        {
+          widget,
+        },
+        {
+          headers: {
+            "Cache-Control": "no-store",
+          },
+        },
+      );
+    }
+
+    if (request.method !== "DELETE") {
+      return adminWidgetFailureResponse(405, "Widget video detach only supports DELETE requests.");
+    }
+
+    const result = detachVideo
+      ? await detachVideo(shop, action.widgetId, action.videoId)
+      : await detachAdminWidgetVideoWithDatabase(shop, action.widgetId, action.videoId);
+
+    return Response.json(result, {
+      headers: {
+        "Cache-Control": "no-store",
+      },
+    });
+  } catch (error) {
+    if (error instanceof Response) {
+      return error;
+    }
+
+    if (error instanceof AdminWidgetExpectedError) {
+      logAdminWidgetError(error);
+      return adminWidgetFailureResponse(error.status, error.clientMessage);
+    }
+
+    const status = authenticated ? 500 : 410;
+
+    if (authenticated) {
+      logAdminWidgetError(error);
+    }
+
+    return adminWidgetFailureResponse(status >= 400 && status < 500 ? status : 500);
+  }
+}
+
+type AdminWidgetAction =
+  | { kind: "list" }
+  | { kind: "create" }
+  | { kind: "detail"; widgetId: string }
+  | { kind: "update"; widgetId: string }
+  | { kind: "attach-video"; widgetId: string }
+  | { kind: "detach-video"; widgetId: string; videoId: string };
+
+function parseAdminWidgetAction(request: Request): AdminWidgetAction {
+  const pathname = new URL(request.url).pathname;
+
+  if (pathname === "/api/admin/widgets") {
+    return request.method === "POST" ? { kind: "create" } : { kind: "list" };
+  }
+
+  const match = pathname.match(/^\/api\/admin\/widgets\/([^/]+)(?:\/videos(?:\/([^/]+))?)?$/);
+
+  if (!match?.[1]) {
+    throw new AdminWidgetExpectedError("Widget route was not found", 404);
+  }
+
+  const widgetId = decodeURIComponent(match[1]);
+
+  if (match[2]) {
+    return {
+      kind: "detach-video",
+      widgetId,
+      videoId: decodeURIComponent(match[2]),
+    };
+  }
+
+  if (pathname.endsWith("/videos")) {
+    return {
+      kind: "attach-video",
+      widgetId,
+    };
+  }
+
+  return request.method === "PATCH" ? { kind: "update", widgetId } : { kind: "detail", widgetId };
+}
+
+async function parseAdminWidgetJsonRequestBody(request: Request): Promise<unknown> {
+  try {
+    return (await request.json()) as unknown;
+  } catch {
+    throw new AdminWidgetExpectedError("Request body must be valid JSON", 400);
+  }
+}
+
+async function listAdminWidgetsWithDatabase(shop: VideoUploadShop): Promise<AdminWidgetListResponse> {
+  const { getPrismaClient, WidgetRepository } = await import("@shoppable-video/db");
+
+  return listAdminWidgets({
+    shop,
+    widgetRepository: new WidgetRepository(getPrismaClient()),
+  });
+}
+
+async function createAdminWidgetWithDatabase(
+  shop: VideoUploadShop,
+  input: unknown,
+): Promise<SafeAdminWidgetDto> {
+  const { getPrismaClient, WidgetRepository } = await import("@shoppable-video/db");
+
+  return createAdminWidget({
+    shop,
+    input,
+    widgetRepository: new WidgetRepository(getPrismaClient()),
+  });
+}
+
+async function getAdminWidgetWithDatabase(
+  shop: VideoUploadShop,
+  widgetId: string,
+): Promise<SafeAdminWidgetDto> {
+  const { getPrismaClient, WidgetRepository } = await import("@shoppable-video/db");
+
+  return getAdminWidget({
+    shop,
+    widgetId,
+    widgetRepository: new WidgetRepository(getPrismaClient()),
+  });
+}
+
+async function updateAdminWidgetWithDatabase(
+  shop: VideoUploadShop,
+  widgetId: string,
+  input: unknown,
+): Promise<SafeAdminWidgetDto> {
+  const { getPrismaClient, WidgetRepository } = await import("@shoppable-video/db");
+
+  return updateAdminWidget({
+    shop,
+    widgetId,
+    input,
+    widgetRepository: new WidgetRepository(getPrismaClient()),
+  });
+}
+
+async function attachAdminWidgetVideoWithDatabase(
+  shop: VideoUploadShop,
+  widgetId: string,
+  input: unknown,
+): Promise<SafeAdminWidgetDto> {
+  const { getPrismaClient, VideoRepository, WidgetRepository } = await import("@shoppable-video/db");
+  const prismaClient = getPrismaClient();
+
+  return attachAdminWidgetVideo({
+    shop,
+    widgetId,
+    input,
+    widgetRepository: new WidgetRepository(prismaClient),
+    videoRepository: new VideoRepository(prismaClient),
+  });
+}
+
+async function detachAdminWidgetVideoWithDatabase(
+  shop: VideoUploadShop,
+  widgetId: string,
+  videoId: string,
+): Promise<{ detached: true }> {
+  const { getPrismaClient, WidgetRepository } = await import("@shoppable-video/db");
+
+  return detachAdminWidgetVideo({
+    shop,
+    widgetId,
+    videoId,
+    widgetRepository: new WidgetRepository(getPrismaClient()),
+  });
+}
+
+function logAdminWidgetError(error: unknown): void {
+  const reason = error instanceof Error ? error.name : "UnknownAdminWidgetError";
+
+  console.error("Failed to handle admin widget request", {
+    operation: "widgets.admin",
+    reason,
+  });
+}
+
+function adminWidgetFailureResponse(
+  status: number,
+  message = "We could not update widgets. Reload the app from Shopify admin.",
 ): Response {
   return Response.json(
     {

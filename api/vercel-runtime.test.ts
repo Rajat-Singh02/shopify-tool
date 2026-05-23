@@ -25,6 +25,10 @@ describe("Vercel runtime route surface", () => {
     ["/api/admin-dashboard", "admin-dashboard"],
     ["/api/admin/products/search", "product-search"],
     ["/api/admin-products-search", "product-search"],
+    ["/api/admin/widgets", "admin-widget"],
+    ["/api/admin/widgets/widget_1", "admin-widget"],
+    ["/api/admin/widgets/widget_1/videos", "admin-widget"],
+    ["/api/admin/widgets/widget_1/videos/video_1", "admin-widget"],
     ["/api/admin/videos", "video-library"],
     ["/api/admin/videos/video_1", "video-library"],
     ["/api/admin/videos/video_1/archive", "video-library"],
@@ -232,6 +236,188 @@ describe("Vercel runtime route surface", () => {
     expect(serializedBody).not.toContain("accessToken");
     expect(serializedBody).not.toContain("session");
     expect(serializedBody).not.toContain("SHOPIFY_API_SECRET");
+  });
+
+  it("returns a safe admin widget response when no bearer token is present", async () => {
+    const response = await handleVercelRuntimeRequest(
+      new Request("https://app.example.test/api/admin/widgets"),
+    );
+    const body = (await response.json()) as {
+      message: string;
+    };
+
+    expect(response.status).toBe(410);
+    expect(body.message).toBe("We could not update widgets. Reload the app from Shopify admin.");
+  });
+
+  it("lists and creates admin widgets for a valid authenticated shop", async () => {
+    const shop = {
+      id: "shop_1",
+      shopDomain: "test-shop.myshopify.com",
+    };
+    const widget = {
+      id: "widget_1",
+      title: "Homepage videos",
+      status: "DRAFT",
+      layout: "INLINE_CAROUSEL",
+      createdAt: "2026-05-23T00:00:00.000Z",
+      updatedAt: "2026-05-23T00:00:00.000Z",
+      videos: [],
+    };
+    const authenticateAdmin = vi.fn().mockResolvedValue({
+      session: {
+        shop: shop.shopDomain,
+      },
+    });
+    const loadVideoUploadShop = vi.fn().mockResolvedValue(shop);
+    const listAdminWidgets = vi.fn().mockResolvedValue({ widgets: [widget] });
+    const createAdminWidget = vi.fn().mockResolvedValue(widget);
+
+    const listResponse = await handleVercelRuntimeRequest(
+      new Request("https://app.example.test/api/admin/widgets", {
+        headers: {
+          Authorization: "Bearer admin-widget-token",
+        },
+      }),
+      {
+        authenticateAdmin,
+        loadVideoUploadShop,
+        listAdminWidgets,
+      },
+    );
+    const createResponse = await handleVercelRuntimeRequest(
+      new Request("https://app.example.test/api/admin/widgets", {
+        method: "POST",
+        headers: {
+          Authorization: "Bearer admin-widget-token",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ title: "Homepage videos" }),
+      }),
+      {
+        authenticateAdmin,
+        loadVideoUploadShop,
+        createAdminWidget,
+      },
+    );
+    const listBody = (await listResponse.json()) as { widgets: Array<{ title: string }> };
+    const createBody = (await createResponse.json()) as { widget: { title: string } };
+    const serializedBodies = JSON.stringify([listBody, createBody]);
+
+    expect(listResponse.status).toBe(200);
+    expect(createResponse.status).toBe(201);
+    expect(listBody.widgets[0]?.title).toBe("Homepage videos");
+    expect(createBody.widget.title).toBe("Homepage videos");
+    expect(listAdminWidgets).toHaveBeenCalledWith(shop);
+    expect(createAdminWidget).toHaveBeenCalledWith(shop, { title: "Homepage videos" });
+    expect(serializedBodies).not.toContain("admin-widget-token");
+    expect(serializedBodies).not.toContain("accessToken");
+    expect(serializedBodies).not.toContain("DATABASE_URL");
+  });
+
+  it("updates, attaches, and detaches admin widget videos safely", async () => {
+    const shop = {
+      id: "shop_1",
+      shopDomain: "test-shop.myshopify.com",
+    };
+    const widget = {
+      id: "widget_1",
+      title: "Homepage videos",
+      status: "PUBLISHED",
+      layout: "INLINE_CAROUSEL",
+      createdAt: "2026-05-23T00:00:00.000Z",
+      updatedAt: "2026-05-23T00:00:00.000Z",
+      videos: [
+        {
+          id: "video_1",
+          originalFilename: "demo.mp4",
+          status: "READY",
+          source: "MANUAL_UPLOAD",
+          contentType: "video/mp4",
+          durationMs: 12345,
+          width: 1920,
+          height: 1080,
+        },
+      ],
+    };
+    const dependencies = {
+      authenticateAdmin: vi.fn().mockResolvedValue({
+        session: {
+          shop: shop.shopDomain,
+        },
+      }),
+      loadVideoUploadShop: vi.fn().mockResolvedValue(shop),
+      getAdminWidget: vi.fn().mockResolvedValue(widget),
+      updateAdminWidget: vi.fn().mockResolvedValue(widget),
+      attachAdminWidgetVideo: vi.fn().mockResolvedValue(widget),
+      detachAdminWidgetVideo: vi.fn().mockResolvedValue({ detached: true }),
+    };
+
+    const detailResponse = await handleVercelRuntimeRequest(
+      new Request("https://app.example.test/api/admin/widgets/widget_1", {
+        headers: {
+          Authorization: "Bearer admin-widget-token",
+        },
+      }),
+      dependencies,
+    );
+    const updateResponse = await handleVercelRuntimeRequest(
+      new Request("https://app.example.test/api/admin/widgets/widget_1", {
+        method: "PATCH",
+        headers: {
+          Authorization: "Bearer admin-widget-token",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ status: "PUBLISHED" }),
+      }),
+      dependencies,
+    );
+    const attachResponse = await handleVercelRuntimeRequest(
+      new Request("https://app.example.test/api/admin/widgets/widget_1/videos", {
+        method: "POST",
+        headers: {
+          Authorization: "Bearer admin-widget-token",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ videoId: "video_1" }),
+      }),
+      dependencies,
+    );
+    const detachResponse = await handleVercelRuntimeRequest(
+      new Request("https://app.example.test/api/admin/widgets/widget_1/videos/video_1", {
+        method: "DELETE",
+        headers: {
+          Authorization: "Bearer admin-widget-token",
+        },
+      }),
+      dependencies,
+    );
+    const serializedBodies = JSON.stringify([
+      await detailResponse.json(),
+      await updateResponse.json(),
+      await attachResponse.json(),
+      await detachResponse.json(),
+    ]);
+
+    expect(detailResponse.status).toBe(200);
+    expect(updateResponse.status).toBe(200);
+    expect(attachResponse.status).toBe(200);
+    expect(detachResponse.status).toBe(200);
+    expect(dependencies.getAdminWidget).toHaveBeenCalledWith(shop, "widget_1");
+    expect(dependencies.updateAdminWidget).toHaveBeenCalledWith(shop, "widget_1", {
+      status: "PUBLISHED",
+    });
+    expect(dependencies.attachAdminWidgetVideo).toHaveBeenCalledWith(shop, "widget_1", {
+      videoId: "video_1",
+    });
+    expect(dependencies.detachAdminWidgetVideo).toHaveBeenCalledWith(
+      shop,
+      "widget_1",
+      "video_1",
+    );
+    expect(serializedBodies).not.toContain("admin-widget-token");
+    expect(serializedBodies).not.toContain("session");
+    expect(serializedBodies).not.toContain("/tmp/shoppable-video-storage");
   });
 
   it("serves the public storefront widget bootstrap script", async () => {
