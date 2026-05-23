@@ -60,6 +60,9 @@ function createClient(existingVideo: VideoRecord | null = null): {
 
           return Promise.resolve(video);
         },
+        findUnique({ where }) {
+          return Promise.resolve(existingVideo?.id === where.id ? existingVideo : null);
+        },
         findFirst({ where }) {
           if (existingVideo?.id === where.id && existingVideo.shopId === where.shopId) {
             return Promise.resolve(existingVideo);
@@ -70,8 +73,11 @@ function createClient(existingVideo: VideoRecord | null = null): {
         update({ data }) {
           const video = createVideo({
             ...(existingVideo ?? {}),
-            status: data.status,
-            storageKeyOriginal: data.storageKeyOriginal ?? existingVideo?.storageKeyOriginal ?? null,
+            ...data,
+            storageKeyOriginal:
+              "storageKeyOriginal" in data
+                ? data.storageKeyOriginal ?? existingVideo?.storageKeyOriginal ?? null
+                : existingVideo?.storageKeyOriginal ?? null,
           });
 
           updated.push(video);
@@ -128,5 +134,33 @@ describe("VideoRepository", () => {
 
     expect(video.status).toBe("UPLOADED");
     expect(updated[0]?.storageKeyOriginal).toBe(existingVideo.storageKeyOriginal);
+  });
+
+  it("marks processing, ready, and failed states with safe metadata", async () => {
+    const existingVideo = createVideo();
+    const { client, updated } = createClient(existingVideo);
+    const repository = new VideoRepository(client);
+
+    await expect(repository.findById(existingVideo.id)).resolves.toBe(existingVideo);
+    await repository.markProcessing(existingVideo.id);
+    await repository.markReady(existingVideo.id, {
+      durationMs: 1234,
+      width: 1920,
+      height: 1080,
+    });
+    await repository.markFailed(existingVideo.id, "ffprobe failed\nwith details");
+
+    expect(updated[0]?.status).toBe("PROCESSING");
+    expect(updated[1]).toMatchObject({
+      status: "READY",
+      durationMs: 1234,
+      width: 1920,
+      height: 1080,
+      failureReason: null,
+    });
+    expect(updated[2]).toMatchObject({
+      status: "FAILED",
+      failureReason: "ffprobe failed with details",
+    });
   });
 });
