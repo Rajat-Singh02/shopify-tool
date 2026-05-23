@@ -6,6 +6,12 @@ export default defineConfig({
     projects: [
       {
         plugins: [react()],
+        resolve: {
+          alias: {
+            "@shoppable-video/video-worker": new URL("./workers/video/src/index.ts", import.meta.url)
+              .pathname,
+          },
+        },
         test: {
           name: "unit",
           include: [
