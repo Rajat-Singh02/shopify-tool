@@ -199,7 +199,7 @@ describe("admin widget services", () => {
         },
       }),
     ).resolves.toEqual(toSafeAdminWidgetDto(updatedWidget));
-    expect(attachVideo).toHaveBeenCalledWith("shop_1", "widget_1", createVideo());
+    expect(attachVideo).toHaveBeenCalledWith("shop_1", "widget_1", createVideo(), 0);
   });
 
   it("rejects missing or not-ready videos before attaching", async () => {

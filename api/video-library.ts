@@ -27,7 +27,7 @@ export type SafeVideoLibraryDto = {
   status: VideoStatus;
   originalFilename: string;
   contentType: string;
-  sizeBytes: number;
+  sizeBytes: number | string;
   durationMs: number | null;
   width: number | null;
   height: number | null;
@@ -123,7 +123,10 @@ export function toSafeVideoLibraryDto(video: VideoRecord): SafeVideoLibraryDto {
     status: video.status,
     originalFilename: video.originalFilename,
     contentType: video.originalMimeType,
-    sizeBytes: Number(video.originalSizeBytes),
+    sizeBytes:
+      video.originalSizeBytes <= BigInt(Number.MAX_SAFE_INTEGER)
+        ? Number(video.originalSizeBytes)
+        : video.originalSizeBytes.toString(),
     durationMs: video.durationMs,
     width: video.width,
     height: video.height,
@@ -171,11 +174,31 @@ function parseCursor(value: unknown): string | null {
     return null;
   }
 
-  if (typeof value !== "string" || value.length > MAX_CURSOR_LENGTH) {
+  if (typeof value !== "string" || value.length > MAX_CURSOR_LENGTH || !isValidVideoCursor(value)) {
     throw new VideoLibraryExpectedError("after cursor is invalid", 400);
   }
 
   return value;
+}
+
+function isValidVideoCursor(cursor: string): boolean {
+  try {
+    const decoded = JSON.parse(Buffer.from(cursor, "base64url").toString("utf8")) as unknown;
+
+    if (!decoded || typeof decoded !== "object") {
+      return false;
+    }
+
+    const record = decoded as Record<string, unknown>;
+
+    if (typeof record.createdAt !== "string" || typeof record.id !== "string") {
+      return false;
+    }
+
+    return !Number.isNaN(new Date(record.createdAt).valueOf()) && record.id.length > 0;
+  } catch {
+    return false;
+  }
 }
 
 function parseStatus(value: unknown): VideoStatus | null {

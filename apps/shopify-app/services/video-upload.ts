@@ -67,16 +67,22 @@ export function validateVideoFile(file: File | null): string | undefined {
   return undefined;
 }
 
-export function formatVideoFileSize(sizeBytes: number): string {
-  if (sizeBytes >= 1024 * 1024) {
-    return `${(sizeBytes / (1024 * 1024)).toFixed(1)} MB`;
+export function formatVideoFileSize(sizeBytes: number | string): string {
+  const numericSize = typeof sizeBytes === "string" ? Number(sizeBytes) : sizeBytes;
+
+  if (!Number.isFinite(numericSize)) {
+    return String(sizeBytes);
   }
 
-  if (sizeBytes >= 1024) {
-    return `${(sizeBytes / 1024).toFixed(1)} KB`;
+  if (numericSize >= 1024 * 1024) {
+    return `${(numericSize / (1024 * 1024)).toFixed(1)} MB`;
   }
 
-  return `${sizeBytes} B`;
+  if (numericSize >= 1024) {
+    return `${(numericSize / 1024).toFixed(1)} KB`;
+  }
+
+  return `${numericSize} B`;
 }
 
 function isAllowedVideoMimeType(contentType: string): boolean {
@@ -115,7 +121,7 @@ async function uploadVideoFile(
 ): Promise<void> {
   const headers = new Headers(intent.upload.headers);
 
-  if (token) {
+  if (token && isSameOriginUploadUrl(intent.upload.url)) {
     headers.set("Authorization", `Bearer ${token}`);
   }
 
@@ -127,6 +133,16 @@ async function uploadVideoFile(
 
   if (!response.ok) {
     throw new Error(VIDEO_UPLOAD_SAFE_ERROR_MESSAGE);
+  }
+}
+
+function isSameOriginUploadUrl(uploadUrl: string): boolean {
+  try {
+    const parsedUrl = new URL(uploadUrl, window.location.origin);
+
+    return parsedUrl.origin === window.location.origin;
+  } catch {
+    return uploadUrl.startsWith("/");
   }
 }
 

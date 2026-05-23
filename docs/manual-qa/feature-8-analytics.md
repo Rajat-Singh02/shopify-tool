@@ -20,6 +20,8 @@
 - [ ] POST `/api/storefront/events` rejects invalid JSON safely.
 - [ ] POST `/api/storefront/events` rejects unknown event type safely.
 - [ ] POST `/api/storefront/events` rejects invalid shop safely.
+- [ ] POST `/api/storefront/events` supports OPTIONS preflight and rejects oversized bodies safely.
+- [ ] Repeated event posts hit a safe abuse/rate-limit response instead of logging noisy failures.
 - [ ] GET `/api/admin/analytics/summary` without bearer returns safe 401/410.
 - [ ] GET `/api/admin/analytics/events` without bearer returns safe 401/410.
 
@@ -78,6 +80,7 @@ Check:
 - [ ] Summary only includes current-shop events.
 - [ ] Totals are non-negative.
 - [ ] Counts include widget views, impressions, plays/pauses, product clicks where available.
+- [ ] Expected-value checks compare generated test events against summary totals and per-type counts.
 - [ ] Date range filters work.
 - [ ] widgetId filter works.
 - [ ] videoId filter works.
@@ -88,6 +91,7 @@ Check:
 
 - [ ] Authenticated GET `/api/admin/analytics/events` returns safe event DTOs.
 - [ ] Pagination works.
+- [ ] Pagination terminal page and invalid/tampered cursors behave safely.
 - [ ] eventType filter works.
 - [ ] date filters work.
 - [ ] widget/video filters work.

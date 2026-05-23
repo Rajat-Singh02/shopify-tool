@@ -39,6 +39,13 @@ const shop = {
   id: "shop_1",
   shopDomain: "test-shop.myshopify.com",
 };
+const validCursor = Buffer.from(
+  JSON.stringify({
+    createdAt: "2026-05-23T00:00:00.000Z",
+    id: "video_0",
+  }),
+  "utf8",
+).toString("base64url");
 
 describe("video library services", () => {
   it("lists videos with safe DTOs and sanitized filters", async () => {
@@ -55,7 +62,7 @@ describe("video library services", () => {
       shop,
       query: {
         first: "99",
-        after: "cursor_0",
+        after: validCursor,
         status: "READY",
         source: "MANUAL_UPLOAD",
         q: "  demo    video  ",
@@ -69,7 +76,7 @@ describe("video library services", () => {
     expect(listByShop).toHaveBeenCalledWith({
       shopId: "shop_1",
       first: 50,
-      after: "cursor_0",
+      after: validCursor,
       status: "READY",
       source: "MANUAL_UPLOAD",
       q: "demo video",
@@ -106,6 +113,15 @@ describe("video library services", () => {
         shop,
         query: {
           status: "DELETED",
+        },
+        videoRepository: repository,
+      }),
+    ).rejects.toThrow(VideoLibraryExpectedError);
+    await expect(
+      listVideoLibrary({
+        shop,
+        query: {
+          after: "tampered-cursor",
         },
         videoRepository: repository,
       }),

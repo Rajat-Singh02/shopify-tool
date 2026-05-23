@@ -74,15 +74,20 @@ export function createStorefrontWidgetBootstrapScript(): string {
   const mountSelector = script.getAttribute("data-mount");
   const mount = mountSelector ? document.querySelector(mountSelector) : document.createElement("div");
   if (!mount) return;
-  if (!mountSelector && script.parentNode) script.parentNode.insertBefore(mount, script.nextSibling);
+  if (!mountSelector) {
+    const parent = document.body || document.documentElement;
+    if (!parent) return;
+    parent.appendChild(mount);
+  }
   mount.setAttribute("data-shoppable-video-widget", widgetId || "");
+  const root = mount.attachShadow ? mount.attachShadow({ mode: "open" }) : mount;
   const setText = (node, value) => { node.textContent = value == null ? "" : String(value); };
   const renderMessage = (message) => {
-    mount.textContent = "";
+    root.textContent = "";
     const container = document.createElement("div");
     container.setAttribute("role", "status");
     setText(container, message);
-    mount.appendChild(container);
+    root.appendChild(container);
   };
   if (!shop || !widgetId) {
     renderMessage("Shoppable video widget is unavailable.");
@@ -103,17 +108,18 @@ export function createStorefrontWidgetBootstrapScript(): string {
         method: "POST",
         headers: { "Content-Type": "application/json", Accept: "application/json" },
         body,
+        credentials: "omit",
         keepalive: true
       }).catch(() => {});
     } catch {}
   };
-  fetch(endpoint.toString(), { headers: { Accept: "application/json" } })
+  fetch(endpoint.toString(), { headers: { Accept: "application/json" }, credentials: "omit" })
     .then((response) => {
       if (!response.ok) throw new Error("widget unavailable");
       return response.json();
     })
     .then((payload) => {
-      mount.textContent = "";
+      root.textContent = "";
       const container = document.createElement("section");
       container.setAttribute("aria-label", "Shoppable videos");
       const title = document.createElement("h2");
@@ -161,7 +167,7 @@ export function createStorefrontWidgetBootstrapScript(): string {
         sendEvent({ eventType: "VIDEO_IMPRESSION", videoId: video.id });
       }
       container.appendChild(list);
-      mount.appendChild(container);
+      root.appendChild(container);
       sendEvent({ eventType: "WIDGET_VIEW" });
     })
     .catch(() => renderMessage("Shoppable video widget is unavailable."));

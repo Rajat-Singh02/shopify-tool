@@ -11,7 +11,7 @@ import {
   Text,
   TextField,
 } from "@shopify/polaris";
-import { useCallback, useEffect, useId, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 
 import {
   fetchAdminProductSearch,
@@ -115,6 +115,8 @@ export function VideosPage({
   const [selectedVideo, setSelectedVideo] = useState<VideoLibraryItem | null>(null);
   const [detailLoadingId, setDetailLoadingId] = useState<string | null>(null);
   const [archiveLoadingId, setArchiveLoadingId] = useState<string | null>(null);
+  const latestLibraryRequestIdRef = useRef(0);
+  const latestDetailRequestIdRef = useRef(0);
   const isUploading =
     uploadState.status === "creating-intent" ||
     uploadState.status === "uploading" ||
@@ -129,6 +131,9 @@ export function VideosPage({
   const loadVideos = useCallback(
     async ({ after, append }: { after?: string | null; append?: boolean } = {}) => {
       const previousResult = libraryState.result;
+      const requestId = latestLibraryRequestIdRef.current + 1;
+
+      latestLibraryRequestIdRef.current = requestId;
 
       setLibraryState(
         append && previousResult
@@ -145,6 +150,10 @@ export function VideosPage({
           after,
         });
 
+        if (latestLibraryRequestIdRef.current !== requestId) {
+          return;
+        }
+
         setLibraryState({
           status: "ready",
           result:
@@ -156,11 +165,15 @@ export function VideosPage({
               : nextResult,
         });
       } catch {
-        setLibraryState({
+        if (latestLibraryRequestIdRef.current !== requestId) {
+          return;
+        }
+
+        setLibraryState((currentState) => ({
           status: "error",
-          result: previousResult,
+          result: currentState.result ?? previousResult,
           message: VIDEO_LIBRARY_SAFE_ERROR_MESSAGE,
-        });
+        }));
       }
     },
     [libraryState.result, loadVideoLibrary, query, sourceFilter, statusFilter],
@@ -237,17 +250,33 @@ export function VideosPage({
   }
 
   async function handleLoadVideoDetail(videoId: string) {
+    const requestId = latestDetailRequestIdRef.current + 1;
+
+    latestDetailRequestIdRef.current = requestId;
+
     try {
       setDetailLoadingId(videoId);
-      setSelectedVideo(await loadVideoDetail(videoId));
+      const video = await loadVideoDetail(videoId);
+
+      if (latestDetailRequestIdRef.current !== requestId) {
+        return;
+      }
+
+      setSelectedVideo(video);
     } catch {
-      setLibraryState({
+      if (latestDetailRequestIdRef.current !== requestId) {
+        return;
+      }
+
+      setLibraryState((currentState) => ({
         status: "error",
-        result: libraryState.result,
+        result: currentState.result,
         message: VIDEO_LIBRARY_SAFE_ERROR_MESSAGE,
-      });
+      }));
     } finally {
-      setDetailLoadingId(null);
+      if (latestDetailRequestIdRef.current === requestId) {
+        setDetailLoadingId(null);
+      }
     }
   }
 
@@ -276,11 +305,11 @@ export function VideosPage({
         };
       });
     } catch {
-      setLibraryState({
+      setLibraryState((currentState) => ({
         status: "error",
-        result: libraryState.result,
+        result: currentState.result,
         message: VIDEO_LIBRARY_SAFE_ERROR_MESSAGE,
-      });
+      }));
     } finally {
       setArchiveLoadingId(null);
     }
@@ -672,35 +701,53 @@ function VideoProductTaggingPanel({
   });
   const [taggingVariantId, setTaggingVariantId] = useState<string | null>(null);
   const [removingTagId, setRemovingTagId] = useState<string | null>(null);
+  const latestTagRequestIdRef = useRef(0);
+  const latestProductSearchRequestIdRef = useRef(0);
   const tags = tagState.result?.tags ?? [];
   const isArchived = video.status === "ARCHIVED";
 
   const loadTags = useCallback(async () => {
+    const requestId = latestTagRequestIdRef.current + 1;
+
+    latestTagRequestIdRef.current = requestId;
+
     setTagState((currentState) => ({
       status: "loading",
       result: currentState.result,
     }));
 
     try {
+      const result = await loadVideoProductTags(video.id);
+
+      if (latestTagRequestIdRef.current !== requestId) {
+        return;
+      }
+
       setTagState({
         status: "ready",
-        result: await loadVideoProductTags(video.id),
+        result,
       });
     } catch {
-      setTagState({
+      if (latestTagRequestIdRef.current !== requestId) {
+        return;
+      }
+
+      setTagState((currentState) => ({
         status: "error",
-        result: null,
+        result: currentState.result,
         message: VIDEO_PRODUCT_TAGS_SAFE_ERROR_MESSAGE,
-      });
+      }));
     }
   }, [loadVideoProductTags, video.id]);
 
   useEffect(() => {
-    let isMounted = true;
+    const requestId = latestTagRequestIdRef.current + 1;
+
+    latestTagRequestIdRef.current = requestId;
 
     loadVideoProductTags(video.id)
       .then((result) => {
-        if (isMounted) {
+        if (latestTagRequestIdRef.current === requestId) {
           setTagState({
             status: "ready",
             result,
@@ -708,41 +755,51 @@ function VideoProductTaggingPanel({
         }
       })
       .catch(() => {
-        if (isMounted) {
-          setTagState({
+        if (latestTagRequestIdRef.current === requestId) {
+          setTagState((currentState) => ({
             status: "error",
-            result: null,
+            result: currentState.result,
             message: VIDEO_PRODUCT_TAGS_SAFE_ERROR_MESSAGE,
-          });
+          }));
         }
       });
-
-    return () => {
-      isMounted = false;
-    };
   }, [loadVideoProductTags, video.id]);
 
   async function runProductSearch() {
+    const requestId = latestProductSearchRequestIdRef.current + 1;
+
+    latestProductSearchRequestIdRef.current = requestId;
+
     setProductSearchState((currentState) => ({
       status: "loading",
       result: currentState.result,
     }));
 
     try {
+      const result = await searchProducts({
+        q: productQuery,
+        first: 20,
+        after: undefined,
+      });
+
+      if (latestProductSearchRequestIdRef.current !== requestId) {
+        return;
+      }
+
       setProductSearchState({
         status: "ready",
-        result: await searchProducts({
-          q: productQuery,
-          first: 20,
-          after: undefined,
-        }),
+        result,
       });
     } catch {
-      setProductSearchState({
+      if (latestProductSearchRequestIdRef.current !== requestId) {
+        return;
+      }
+
+      setProductSearchState((currentState) => ({
         status: "error",
-        result: productSearchState.result,
+        result: currentState.result,
         message: PRODUCT_SEARCH_SAFE_ERROR_MESSAGE,
-      });
+      }));
     }
   }
 
@@ -778,11 +835,11 @@ function VideoProductTaggingPanel({
         };
       });
     } catch {
-      setTagState({
+      setTagState((currentState) => ({
         status: "error",
-        result: tagState.result,
+        result: currentState.result,
         message: VIDEO_PRODUCT_TAGS_SAFE_ERROR_MESSAGE,
-      });
+      }));
     } finally {
       setTaggingVariantId(null);
     }
@@ -803,11 +860,11 @@ function VideoProductTaggingPanel({
         },
       }));
     } catch {
-      setTagState({
+      setTagState((currentState) => ({
         status: "error",
-        result: tagState.result,
+        result: currentState.result,
         message: VIDEO_PRODUCT_TAGS_SAFE_ERROR_MESSAGE,
-      });
+      }));
     } finally {
       setRemovingTagId(null);
     }

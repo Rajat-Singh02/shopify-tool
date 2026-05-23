@@ -230,6 +230,29 @@ describe("video processing worker", () => {
     expect(repository.markFailed).toHaveBeenCalledWith("video_1", "STORAGE_OBJECT_MISSING");
   });
 
+  it("preserves the original processing error when marking failed also fails", async () => {
+    const { repository } = createRepository(createVideo());
+    vi.mocked(repository.markFailed).mockRejectedValueOnce(new Error("mark failed write failed"));
+
+    await expect(
+      processVideoJob(
+        {
+          videoId: "video_1",
+        },
+        {
+          videoRepository: repository,
+          storageResolver: {
+            resolveOriginalObject: vi
+              .fn()
+              .mockRejectedValue(
+                new VideoProcessingExpectedError("Object missing", "STORAGE_OBJECT_MISSING"),
+              ),
+          },
+        },
+      ),
+    ).rejects.toThrow("Object missing");
+  });
+
   it("rejects missing or wrong-status videos without status mutation", async () => {
     const missing = createRepository(null);
     const archived = createRepository(createVideo({ status: "ARCHIVED" }));

@@ -231,6 +231,38 @@ type DashboardDiagnosticError = Error & {
 };
 type SafeDiagnosticValue = string | number | boolean | null;
 
+const ADMIN_AUTH_REQUIRED_STATUS = 401;
+const MAX_PRODUCT_SEARCH_FIRST = 50;
+const DEFAULT_PRODUCT_SEARCH_FIRST = 20;
+const MAX_STOREFRONT_EVENT_BODY_BYTES = 8192;
+const STOREFRONT_EVENT_RATE_LIMIT_WINDOW_MS = 60_000;
+const STOREFRONT_EVENT_RATE_LIMIT_MAX = 120;
+const storefrontEventRateLimitBuckets = new Map<
+  string,
+  {
+    count: number;
+    resetAt: number;
+  }
+>();
+
+function createPublicCorsHeaders(headers: HeadersInit = {}): Headers {
+  const corsHeaders = new Headers(headers);
+
+  corsHeaders.set("Access-Control-Allow-Origin", "*");
+  corsHeaders.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  corsHeaders.set("Access-Control-Allow-Headers", "Content-Type, Accept");
+  corsHeaders.set("Access-Control-Max-Age", "86400");
+
+  return corsHeaders;
+}
+
+function publicCorsPreflightResponse(): Response {
+  return new Response(null, {
+    status: 204,
+    headers: createPublicCorsHeaders(),
+  });
+}
+
 export default async function handler(
   request: IncomingMessage,
   response: ServerResponse,
@@ -454,7 +486,7 @@ async function handleProductSearchRequest(
   }
 
   if (!authenticateAdmin && !hasBearerAuthorization(request)) {
-    return productSearchFailureResponse(410);
+    return productSearchFailureResponse(ADMIN_AUTH_REQUIRED_STATUS);
   }
 
   let authenticated = false;
@@ -490,7 +522,7 @@ async function handleProductSearchRequest(
       return productSearchFailureResponse(error.status, error.clientMessage);
     }
 
-    const status = authenticated ? 500 : 410;
+    const status = authenticated ? 500 : ADMIN_AUTH_REQUIRED_STATUS;
 
     if (authenticated) {
       logProductSearchError(error);
@@ -503,12 +535,48 @@ async function handleProductSearchRequest(
 function parseProductSearchRequestInput(request: Request): ProductSearchInput {
   const url = new URL(request.url);
   const firstParam = url.searchParams.get("first");
+  const first = parseProductSearchFirst(firstParam);
+  const q = sanitizeProductSearchQuery(url.searchParams.get("q"));
 
   return {
-    q: url.searchParams.get("q"),
-    first: firstParam ? Number(firstParam) : undefined,
+    q,
+    first,
     after: url.searchParams.get("after"),
   };
+}
+
+function parseProductSearchFirst(firstParam: string | null): number {
+  if (firstParam === null || firstParam.trim() === "") {
+    return DEFAULT_PRODUCT_SEARCH_FIRST;
+  }
+
+  const first = Number(firstParam);
+
+  if (!Number.isInteger(first) || first < 1) {
+    throw new ProductSearchExpectedError(
+      "Product search first parameter was invalid",
+      400,
+      "Product search page size must be a positive whole number.",
+    );
+  }
+
+  return Math.min(first, MAX_PRODUCT_SEARCH_FIRST);
+}
+
+function sanitizeProductSearchQuery(query: string | null): string | null {
+  if (!query) {
+    return null;
+  }
+
+  const safeTerms = query
+    .trim()
+    .split(/\s+/)
+    .filter((term) => !/[:(){}[\]"']/.test(term) && !term.startsWith("-"))
+    .join(" ")
+    .slice(0, 120)
+    .trim();
+
+  return safeTerms.length > 0 ? safeTerms : null;
 }
 
 async function loadProductSearchSessionFromDatabase(
@@ -647,7 +715,7 @@ async function handleAdminAnalyticsRequest(
   }
 
   if (!authenticateAdmin && !hasBearerAuthorization(request)) {
-    return adminAnalyticsFailureResponse(410);
+    return adminAnalyticsFailureResponse(ADMIN_AUTH_REQUIRED_STATUS);
   }
 
   let authenticated = false;
@@ -691,7 +759,7 @@ async function handleAdminAnalyticsRequest(
       return adminAnalyticsFailureResponse(error.status, error.clientMessage);
     }
 
-    const status = authenticated ? 500 : 410;
+    const status = authenticated ? 500 : ADMIN_AUTH_REQUIRED_STATUS;
 
     if (authenticated) {
       logAdminAnalyticsError(error);
@@ -792,7 +860,7 @@ async function handleAdminWidgetRequest(
   }
 
   if (!authenticateAdmin && !hasBearerAuthorization(request)) {
-    return adminWidgetFailureResponse(410);
+    return adminWidgetFailureResponse(ADMIN_AUTH_REQUIRED_STATUS);
   }
 
   let authenticated = false;
@@ -932,7 +1000,7 @@ async function handleAdminWidgetRequest(
       return adminWidgetFailureResponse(error.status, error.clientMessage);
     }
 
-    const status = authenticated ? 500 : 410;
+    const status = authenticated ? 500 : ADMIN_AUTH_REQUIRED_STATUS;
 
     if (authenticated) {
       logAdminWidgetError(error);
@@ -1107,6 +1175,10 @@ async function handleStorefrontEventRequest(
     return handleStorefrontEvent(request);
   }
 
+  if (request.method === "OPTIONS") {
+    return publicCorsPreflightResponse();
+  }
+
   if (request.method !== "POST") {
     return storefrontEventFailureResponse(405, "Storefront events only support POST requests.");
   }
@@ -1125,14 +1197,15 @@ async function handleStorefrontEventRequest(
 
   try {
     const body = await parseStorefrontEventJsonRequestBody(request);
+    enforceStorefrontEventRateLimit(body);
     const result = recordStorefrontEvent
       ? await recordStorefrontEvent(body)
       : await recordStorefrontEventWithDatabase(body);
 
     return Response.json(result, {
-      headers: {
+      headers: createPublicCorsHeaders({
         "Cache-Control": "no-store",
-      },
+      }),
     });
   } catch (error) {
     if (error instanceof StorefrontAnalyticsExpectedError) {
@@ -1145,11 +1218,58 @@ async function handleStorefrontEventRequest(
 }
 
 async function parseStorefrontEventJsonRequestBody(request: Request): Promise<unknown> {
+  const bodyText = await request.text();
+  const bodySizeBytes = new TextEncoder().encode(bodyText).byteLength;
+
+  if (bodySizeBytes > MAX_STOREFRONT_EVENT_BODY_BYTES) {
+    throw new StorefrontAnalyticsExpectedError(
+      "Storefront event payload exceeded the body limit",
+      413,
+      "Storefront event payload is too large.",
+    );
+  }
+
   try {
-    return (await request.json()) as unknown;
+    return JSON.parse(bodyText) as unknown;
   } catch {
     throw new StorefrontAnalyticsExpectedError("Request body must be valid JSON", 400);
   }
+}
+
+function enforceStorefrontEventRateLimit(input: unknown): void {
+  const key = getStorefrontEventRateLimitKey(input);
+  const now = Date.now();
+  const current = storefrontEventRateLimitBuckets.get(key);
+
+  if (!current || current.resetAt <= now) {
+    storefrontEventRateLimitBuckets.set(key, {
+      count: 1,
+      resetAt: now + STOREFRONT_EVENT_RATE_LIMIT_WINDOW_MS,
+    });
+    return;
+  }
+
+  current.count += 1;
+
+  if (current.count > STOREFRONT_EVENT_RATE_LIMIT_MAX) {
+    throw new StorefrontAnalyticsExpectedError(
+      "Storefront event rate limit exceeded",
+      429,
+      "Too many storefront events. Try again shortly.",
+    );
+  }
+}
+
+function getStorefrontEventRateLimitKey(input: unknown): string {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    return "invalid";
+  }
+
+  const record = input as Record<string, unknown>;
+  const shop = typeof record.shop === "string" ? record.shop.trim().toLowerCase() : "unknown";
+  const widgetId = typeof record.widgetId === "string" ? record.widgetId.trim() : "unknown";
+
+  return `${shop}:${widgetId}`;
 }
 
 async function recordStorefrontEventWithDatabase(
@@ -1186,9 +1306,9 @@ function storefrontEventFailureResponse(
     },
     {
       status,
-      headers: {
+      headers: createPublicCorsHeaders({
         "Cache-Control": "no-store",
-      },
+      }),
     },
   );
 }
@@ -1203,16 +1323,20 @@ async function handleStorefrontWidgetRequest(
 
   const url = new URL(request.url);
 
+  if (request.method === "OPTIONS") {
+    return publicCorsPreflightResponse();
+  }
+
   if (url.pathname === "/widget.js") {
     if (request.method !== "GET" && request.method !== "HEAD") {
       return storefrontWidgetFailureResponse(405, "Widget script only supports GET requests.");
     }
 
     return new Response(createStorefrontWidgetBootstrapScript(), {
-      headers: {
+      headers: createPublicCorsHeaders({
         "Cache-Control": "public, max-age=300",
         "Content-Type": "application/javascript; charset=utf-8",
-      },
+      }),
     });
   }
 
@@ -1228,9 +1352,9 @@ async function handleStorefrontWidgetRequest(
       : await loadStorefrontWidgetFromDatabase(shopDomain ?? "", widgetId);
 
     return Response.json(result, {
-      headers: {
+      headers: createPublicCorsHeaders({
         "Cache-Control": "public, max-age=60",
-      },
+      }),
     });
   } catch (error) {
     if (error instanceof StorefrontWidgetExpectedError) {
@@ -1284,9 +1408,9 @@ function storefrontWidgetFailureResponse(
     },
     {
       status,
-      headers: {
+      headers: createPublicCorsHeaders({
         "Cache-Control": "no-store",
-      },
+      }),
     },
   );
 }
@@ -1307,7 +1431,7 @@ async function handleVideoLibraryRequest(
   }
 
   if (!authenticateAdmin && !hasBearerAuthorization(request)) {
-    return videoLibraryFailureResponse(410);
+    return videoLibraryFailureResponse(ADMIN_AUTH_REQUIRED_STATUS);
   }
 
   let authenticated = false;
@@ -1385,7 +1509,7 @@ async function handleVideoLibraryRequest(
       return videoLibraryFailureResponse(error.status, error.clientMessage);
     }
 
-    const status = authenticated ? 500 : 410;
+    const status = authenticated ? 500 : ADMIN_AUTH_REQUIRED_STATUS;
 
     if (authenticated) {
       logVideoLibraryError(error);
@@ -1512,7 +1636,7 @@ async function handleVideoProductTagsRequest(
   }
 
   if (!authenticateAdmin && !hasBearerAuthorization(request)) {
-    return videoProductTagsFailureResponse(410);
+    return videoProductTagsFailureResponse(ADMIN_AUTH_REQUIRED_STATUS);
   }
 
   let authenticated = false;
@@ -1596,7 +1720,7 @@ async function handleVideoProductTagsRequest(
       return videoProductTagsFailureResponse(error.status, error.clientMessage);
     }
 
-    const status = authenticated ? 500 : 410;
+    const status = authenticated ? 500 : ADMIN_AUTH_REQUIRED_STATUS;
 
     if (authenticated) {
       logVideoProductTagsError(error);
@@ -1732,7 +1856,7 @@ async function handleVideoUploadRequest(
   }
 
   if (!authenticateAdmin && !hasBearerAuthorization(request)) {
-    return videoUploadFailureResponse(410);
+    return videoUploadFailureResponse(ADMIN_AUTH_REQUIRED_STATUS);
   }
 
   let authenticated = false;
@@ -1823,7 +1947,7 @@ async function handleVideoUploadRequest(
       return videoUploadFailureResponse(error.status, error.clientMessage);
     }
 
-    const status = authenticated ? 500 : 410;
+    const status = authenticated ? 500 : ADMIN_AUTH_REQUIRED_STATUS;
 
     if (authenticated) {
       logVideoUploadError(error);
@@ -1903,12 +2027,79 @@ async function writeUploadObjectWithDatabase(
     throw new VideoUploadExpectedError("Video was not found", 404);
   }
 
+  const expectedSizeBytes = Number(video.originalSizeBytes);
+  const contentLength = parseContentLengthHeader(request.headers.get("Content-Length"));
+
+  if (contentLength !== null && contentLength !== expectedSizeBytes) {
+    throw new VideoUploadExpectedError("Uploaded video size does not match intent", 400);
+  }
+
   return writeManualUploadObject({
     video,
     contentType: request.headers.get("Content-Type"),
-    body: new Uint8Array(await request.arrayBuffer()),
+    body: await readUploadRequestBody(request, expectedSizeBytes),
     storageProvider: createStorageProviderFromEnv(),
   });
+}
+
+function parseContentLengthHeader(value: string | null): number | null {
+  if (value === null) {
+    return null;
+  }
+
+  const parsed = Number(value);
+
+  if (!Number.isInteger(parsed) || parsed < 0) {
+    throw new VideoUploadExpectedError("Content-Length is invalid", 400);
+  }
+
+  return parsed;
+}
+
+async function readUploadRequestBody(request: Request, expectedSizeBytes: number): Promise<Uint8Array> {
+  if (!request.body) {
+    const body = new Uint8Array(await request.arrayBuffer());
+
+    if (body.byteLength !== expectedSizeBytes) {
+      throw new VideoUploadExpectedError("Uploaded video size does not match intent", 400);
+    }
+
+    return body;
+  }
+
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let bytesRead = 0;
+
+  while (true) {
+    const { done, value } = await reader.read();
+
+    if (done) {
+      break;
+    }
+
+    bytesRead += value.byteLength;
+
+    if (bytesRead > expectedSizeBytes) {
+      throw new VideoUploadExpectedError("Uploaded video size does not match intent", 400);
+    }
+
+    chunks.push(value);
+  }
+
+  if (bytesRead !== expectedSizeBytes) {
+    throw new VideoUploadExpectedError("Uploaded video size does not match intent", 400);
+  }
+
+  const body = new Uint8Array(bytesRead);
+  let offset = 0;
+
+  for (const chunk of chunks) {
+    body.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+
+  return body;
 }
 
 async function completeUploadWithDatabase(

@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
 
+const MAX_ADMIN_ANALYTICS_SUMMARY_EVENTS = 5000;
+
 export type AnalyticsEventType =
   | "WIDGET_VIEWED"
   | "VIDEO_PLAYED"
@@ -177,6 +179,7 @@ export class AnalyticsEventRepository {
     return this.client.analyticsEvent.findMany({
       where: createAnalyticsEventWhere(input),
       orderBy: [{ occurredAt: "desc" }, { id: "desc" }],
+      take: MAX_ADMIN_ANALYTICS_SUMMARY_EVENTS,
       include: createAdminAnalyticsEventInclude(),
     });
   }

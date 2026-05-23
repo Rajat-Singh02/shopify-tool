@@ -195,7 +195,7 @@ describe("WidgetRepository", () => {
     await expect(repository.attachVideo("shop_1", "widget_1", video)).resolves.toBe(
       existingWidgetVideo,
     );
-    await expect(repository.attachVideo("shop_1", "widget_1", video)).resolves.toBe(
+    await expect(repository.attachVideo("shop_1", "widget_1", video, 2)).resolves.toBe(
       existingWidgetVideo,
     );
 
@@ -205,7 +205,7 @@ describe("WidgetRepository", () => {
         shopId: "shop_1",
         widgetId: "widget_1",
         videoId: "video_1",
-        position: 0,
+        position: 2,
       },
       include: {
         video: true,

@@ -48,10 +48,9 @@ export type FfprobeExecutor = (
 ) => Promise<string>;
 
 export type VideoProcessingDependencies = {
-  videoRepository: Pick<
-    VideoRepository,
-    "findById" | "markProcessing" | "markReady" | "markFailed"
-  >;
+  videoRepository: Pick<VideoRepository, "findById" | "markProcessing" | "markReady" | "markFailed"> & {
+    tryClaimProcessing?: (videoId: string) => Promise<VideoRecord | null>;
+  };
   storageResolver: VideoStorageResolver;
   extractMetadata?: (filePath: string) => Promise<VideoMetadata>;
 };
@@ -94,7 +93,16 @@ export async function processVideoJob(
     );
   }
 
-  await videoRepository.markProcessing(video.id);
+  const claimedVideo = videoRepository.tryClaimProcessing
+    ? await videoRepository.tryClaimProcessing(video.id)
+    : await videoRepository.markProcessing(video.id);
+
+  if (!claimedVideo) {
+    throw new VideoProcessingExpectedError(
+      "Video is already claimed for processing",
+      "VIDEO_PROCESSING_ALREADY_CLAIMED",
+    );
+  }
 
   try {
     const originalObjectPath = await storageResolver.resolveOriginalObject(video);
@@ -116,7 +124,12 @@ export async function processVideoJob(
       metadata,
     };
   } catch (error) {
-    await videoRepository.markFailed(video.id, toSafeProcessingFailureReason(error));
+    try {
+      await videoRepository.markFailed(video.id, toSafeProcessingFailureReason(error));
+    } catch {
+      // Preserve the original processing error; a failed failure-mark update should not mask it.
+    }
+
     throw error;
   }
 }
@@ -259,6 +272,7 @@ async function defaultRunFfprobe(
       "json",
       "-show_format",
       "-show_streams",
+      "--",
       filePath,
     ],
     {

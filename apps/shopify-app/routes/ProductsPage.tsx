@@ -12,7 +12,7 @@ import {
   TextField,
   Thumbnail,
 } from "@shopify/polaris";
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 
 import {
   fetchAdminProductSearch,
@@ -35,6 +35,8 @@ type ProductSearchState =
 
 export function ProductsPage({ searchProducts = fetchAdminProductSearch }: ProductsPageProps) {
   const [query, setQuery] = useState("");
+  const executedQueryRef = useRef("");
+  const latestRequestIdRef = useRef(0);
   const [state, setState] = useState<ProductSearchState>({
     status: "idle",
     result: null,
@@ -46,6 +48,14 @@ export function ProductsPage({ searchProducts = fetchAdminProductSearch }: Produ
   const runSearch = useCallback(
     async ({ after, append }: { after?: string | null; append?: boolean } = {}) => {
       const previousResult = state.result;
+      const requestId = latestRequestIdRef.current + 1;
+      const searchQuery = append ? executedQueryRef.current : query.trim();
+
+      latestRequestIdRef.current = requestId;
+
+      if (!append) {
+        executedQueryRef.current = searchQuery;
+      }
 
       setState(
         append && previousResult
@@ -55,10 +65,14 @@ export function ProductsPage({ searchProducts = fetchAdminProductSearch }: Produ
 
       try {
         const nextResult = await searchProducts({
-          q: query,
+          q: searchQuery,
           first: 20,
           after,
         });
+
+        if (latestRequestIdRef.current !== requestId) {
+          return;
+        }
 
         setState({
           status: "ready",
@@ -71,6 +85,10 @@ export function ProductsPage({ searchProducts = fetchAdminProductSearch }: Produ
               : nextResult,
         });
       } catch {
+        if (latestRequestIdRef.current !== requestId) {
+          return;
+        }
+
         setState({
           status: "error",
           result: previousResult,
@@ -108,7 +126,6 @@ export function ProductsPage({ searchProducts = fetchAdminProductSearch }: Produ
                 <Button
                   variant="primary"
                   submit
-                  loading={isInitialLoading}
                   disabled={isLoadingMore}
                 >
                   Search

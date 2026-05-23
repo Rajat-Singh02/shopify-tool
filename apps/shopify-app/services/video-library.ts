@@ -16,7 +16,7 @@ export type VideoLibraryItem = {
   status: VideoLibraryStatus;
   originalFilename: string;
   contentType: string;
-  sizeBytes: number;
+  sizeBytes: number | string;
   durationMs: number | null;
   width: number | null;
   height: number | null;

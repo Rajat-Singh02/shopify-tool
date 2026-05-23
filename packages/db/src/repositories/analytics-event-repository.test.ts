@@ -198,6 +198,7 @@ describe("AnalyticsEventRepository", () => {
         },
       },
       orderBy: [{ occurredAt: "desc" }, { id: "desc" }],
+      take: 5000,
       include: {
         widget: {
           select: {
