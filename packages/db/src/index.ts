@@ -47,6 +47,15 @@ export {
   type VideoProductTagRepositoryClient,
 } from "./repositories/video-product-tag-repository.js";
 export {
+  WidgetRepository,
+  type StorefrontWidgetRecord,
+  type WidgetLayout,
+  type WidgetRecord,
+  type WidgetRepositoryClient,
+  type WidgetStatus,
+  type WidgetVideoRecord,
+} from "./repositories/widget-repository.js";
+export {
   PrismaShopifySessionStorage,
   type ShopifySessionRecord,
   type ShopifySessionStorageClient,
