@@ -7,7 +7,13 @@ export const config = {
   },
 };
 
-type VercelRuntimeRoute = "admin-dashboard" | "auth" | "health" | "webhook" | "not-found";
+type VercelRuntimeRoute =
+  | "admin-dashboard"
+  | "auth"
+  | "health"
+  | "product-search"
+  | "webhook"
+  | "not-found";
 
 type AdminSession = {
   shop: string;
@@ -22,6 +28,41 @@ type DashboardShopRecord = {
   installedAt: Date;
 };
 
+type ProductSearchSession = {
+  shop: string;
+  accessToken: string;
+};
+
+type ProductSearchInput = {
+  q?: string | null;
+  first?: number | null;
+  after?: string | null;
+};
+
+type ProductSearchResponse = {
+  products: Array<{
+    id: string;
+    title: string;
+    handle: string;
+    status: string;
+    featuredImage: {
+      url: string;
+      altText: string | null;
+    } | null;
+    variants: Array<{
+      id: string;
+      title: string;
+      sku: string | null;
+      price: string;
+      inventoryQuantity: number | null;
+    }>;
+  }>;
+  pageInfo: {
+    hasNextPage: boolean;
+    endCursor: string | null;
+  };
+};
+
 type WebhookContext = {
   shop: string;
   topic: string;
@@ -33,8 +74,14 @@ type RuntimeDependencies = {
   authenticateAdmin?: (request: Request) => Promise<AdminAuthResult>;
   authenticateWebhook?: (request: Request) => Promise<WebhookContext>;
   handleAdminDashboard?: (request: Request) => Promise<Response>;
+  handleProductSearch?: (request: Request) => Promise<Response>;
   handleWebhook?: (request: Request) => Promise<Response>;
   loadDashboardShop?: (shopDomain: string) => Promise<DashboardShopRecord>;
+  loadProductSearchSession?: (shopDomain: string) => Promise<ProductSearchSession | undefined>;
+  searchProducts?: (
+    session: ProductSearchSession,
+    input: ProductSearchInput,
+  ) => Promise<ProductSearchResponse>;
 };
 
 type DashboardDiagnosticError = Error & {
@@ -54,6 +101,13 @@ export default async function handler(
 export function resolveVercelRuntimeRoute(pathname: string): VercelRuntimeRoute {
   if (pathname === "/api/admin/dashboard" || pathname === "/api/admin-dashboard") {
     return "admin-dashboard";
+  }
+
+  if (
+    pathname === "/api/admin/products/search" ||
+    pathname === "/api/admin-products-search"
+  ) {
+    return "product-search";
   }
 
   if (pathname === "/api/webhooks" || pathname === "/webhooks") {
@@ -98,6 +152,10 @@ export async function handleVercelRuntimeRequest(
 
   if (route === "admin-dashboard") {
     return handleAdminDashboardRequest(request, dependencies);
+  }
+
+  if (route === "product-search") {
+    return handleProductSearchRequest(request, dependencies);
   }
 
   if (route === "webhook") {
@@ -167,6 +225,198 @@ async function handleAdminDashboardRequest(
 
     return dashboardAuthFailureResponse(status >= 400 && status < 500 ? status : 500);
   }
+}
+
+async function handleProductSearchRequest(
+  request: Request,
+  {
+    authenticateAdmin,
+    handleProductSearch,
+    loadProductSearchSession,
+    searchProducts,
+  }: RuntimeDependencies,
+): Promise<Response> {
+  if (handleProductSearch) {
+    return handleProductSearch(request);
+  }
+
+  if (request.method !== "GET" && request.method !== "HEAD") {
+    return productSearchFailureResponse(405, "Product search only supports GET requests.");
+  }
+
+  if (!authenticateAdmin && !hasBearerAuthorization(request)) {
+    return productSearchFailureResponse(410);
+  }
+
+  let authenticated = false;
+
+  try {
+    const authResult = await authenticateDashboardRequest(request, authenticateAdmin);
+    authenticated = true;
+    const session = loadProductSearchSession
+      ? await loadProductSearchSession(authResult.session.shop)
+      : await loadProductSearchSessionFromDatabase(authResult.session.shop);
+
+    if (!session) {
+      return productSearchFailureResponse(410);
+    }
+
+    const input = parseProductSearchRequestInput(request);
+    const result = searchProducts
+      ? await searchProducts(session, input)
+      : await searchProductsWithShopifyAdmin(session, input);
+
+    return Response.json(result, {
+      headers: {
+        "Cache-Control": "no-store",
+      },
+    });
+  } catch (error) {
+    if (error instanceof Response) {
+      return error;
+    }
+
+    if (error instanceof ProductSearchExpectedError) {
+      logProductSearchError(error);
+      return productSearchFailureResponse(error.status, error.clientMessage);
+    }
+
+    const status = authenticated ? 500 : 410;
+
+    if (authenticated) {
+      logProductSearchError(error);
+    }
+
+    return productSearchFailureResponse(status >= 400 && status < 500 ? status : 500);
+  }
+}
+
+function parseProductSearchRequestInput(request: Request): ProductSearchInput {
+  const url = new URL(request.url);
+  const firstParam = url.searchParams.get("first");
+
+  return {
+    q: url.searchParams.get("q"),
+    first: firstParam ? Number(firstParam) : undefined,
+    after: url.searchParams.get("after"),
+  };
+}
+
+async function loadProductSearchSessionFromDatabase(
+  shopDomain: string,
+): Promise<ProductSearchSession | undefined> {
+  const { getPrismaClient, PrismaShopifySessionStorage } = await import("@shoppable-video/db");
+  const sessionStorage = new PrismaShopifySessionStorage(getPrismaClient());
+  const sessions = await sessionStorage.findSessionsByShop(shopDomain);
+  const offlineSession = sessions.find(
+    (session) => !session.isOnline && typeof session.accessToken === "string",
+  );
+
+  if (!offlineSession?.accessToken) {
+    return undefined;
+  }
+
+  return {
+    shop: offlineSession.shop,
+    accessToken: offlineSession.accessToken,
+  };
+}
+
+async function searchProductsWithShopifyAdmin(
+  session: ProductSearchSession,
+  input: ProductSearchInput,
+): Promise<ProductSearchResponse> {
+  const { searchShopifyProducts } = await import("@shoppable-video/shopify");
+
+  return searchShopifyProducts(createShopifyAdminGraphqlClient(session), input);
+}
+
+function createShopifyAdminGraphqlClient(session: ProductSearchSession) {
+  const env = parseEnv(process.env);
+  const endpoint = `https://${session.shop}/admin/api/${env.SHOPIFY_API_VERSION}/graphql.json`;
+
+  return {
+    async request<TData>(query: string, variables: Record<string, unknown>): Promise<TData> {
+      let response: Response;
+
+      try {
+        response = await fetch(endpoint, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Shopify-Access-Token": session.accessToken,
+          },
+          body: JSON.stringify({ query, variables }),
+        });
+      } catch {
+        throw new ProductSearchExpectedError(
+          "Shopify Admin API request failed",
+          502,
+          "Unable to search Shopify products right now.",
+        );
+      }
+
+      if (!response.ok) {
+        throw new ProductSearchExpectedError(
+          `Shopify Admin API returned HTTP ${response.status}`,
+          502,
+          "Unable to search Shopify products right now.",
+        );
+      }
+
+      const payload = (await response.json()) as {
+        data?: TData;
+        errors?: unknown;
+      };
+
+      if (payload.errors || !payload.data) {
+        throw new ProductSearchExpectedError(
+          "Shopify Admin API returned GraphQL errors",
+          502,
+          "Unable to search Shopify products right now.",
+        );
+      }
+
+      return payload.data;
+    },
+  };
+}
+
+class ProductSearchExpectedError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly clientMessage: string,
+  ) {
+    super(message);
+    this.name = "ProductSearchExpectedError";
+  }
+}
+
+function logProductSearchError(error: unknown): void {
+  const reason = error instanceof Error ? error.name : "UnknownProductSearchError";
+
+  console.error("Failed to search Shopify products", {
+    operation: "products.search",
+    reason,
+  });
+}
+
+function productSearchFailureResponse(
+  status: number,
+  message = "We could not search Shopify products. Reload the app from Shopify admin.",
+): Response {
+  return Response.json(
+    {
+      message,
+    },
+    {
+      status,
+      headers: {
+        "Cache-Control": "no-store",
+      },
+    },
+  );
 }
 
 async function authenticateDashboardRequest(
