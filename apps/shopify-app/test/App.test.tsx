@@ -8,6 +8,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { App } from "../app/App";
 import { ADMIN_SHELL_SAFE_ERROR_MESSAGE } from "../services/admin-shell";
 import { PRODUCT_SEARCH_SAFE_ERROR_MESSAGE } from "../services/product-search";
+import {
+  VIDEO_LIBRARY_SAFE_ERROR_MESSAGE,
+  type VideoLibraryItem,
+  type VideoLibraryResult,
+} from "../services/video-library";
 import { VIDEO_UPLOAD_SAFE_ERROR_MESSAGE } from "../services/video-upload";
 
 const readyDashboardState = {
@@ -25,7 +30,30 @@ const readyDashboardState = {
 
 afterEach(() => {
   cleanup();
+  vi.unstubAllGlobals();
 });
+
+const emptyVideoLibraryResult: VideoLibraryResult = {
+  videos: [],
+  pageInfo: {
+    hasNextPage: false,
+    endCursor: null,
+  },
+};
+
+const readyVideo: VideoLibraryItem = {
+  id: "video_1",
+  source: "MANUAL_UPLOAD",
+  status: "READY",
+  originalFilename: "demo.mp4",
+  contentType: "video/mp4",
+  sizeBytes: 4 * 1024 * 1024,
+  durationMs: 65000,
+  width: 1920,
+  height: 1080,
+  createdAt: "2026-05-23T00:00:00.000Z",
+  updatedAt: "2026-05-23T00:05:00.000Z",
+};
 
 function renderApp(app: ReactElement, initialEntries = ["/"]) {
   return render(
@@ -248,7 +276,11 @@ describe("admin app shell", () => {
       type: "video/mp4",
     });
     renderApp(
-      <App initialDashboardState={readyDashboardState} uploadVideo={uploadVideo} />,
+      <App
+        initialDashboardState={readyDashboardState}
+        uploadVideo={uploadVideo}
+        loadVideoLibrary={() => Promise.resolve(emptyVideoLibraryResult)}
+      />,
       ["/videos"],
     );
 
@@ -287,7 +319,11 @@ describe("admin app shell", () => {
       type: "application/pdf",
     });
     renderApp(
-      <App initialDashboardState={readyDashboardState} uploadVideo={uploadVideo} />,
+      <App
+        initialDashboardState={readyDashboardState}
+        uploadVideo={uploadVideo}
+        loadVideoLibrary={() => Promise.resolve(emptyVideoLibraryResult)}
+      />,
       ["/videos"],
     );
 
@@ -317,7 +353,11 @@ describe("admin app shell", () => {
       type: "video/mp4",
     });
     renderApp(
-      <App initialDashboardState={readyDashboardState} uploadVideo={uploadVideo} />,
+      <App
+        initialDashboardState={readyDashboardState}
+        uploadVideo={uploadVideo}
+        loadVideoLibrary={() => Promise.resolve(emptyVideoLibraryResult)}
+      />,
       ["/videos"],
     );
 
@@ -337,5 +377,200 @@ describe("admin app shell", () => {
 
     expect(screen.getByText(VIDEO_UPLOAD_SAFE_ERROR_MESSAGE)).toBeInTheDocument();
     expect(document.body.textContent).not.toContain("raw backend upload failure");
+  });
+
+  it("renders the video upload UI and library results together", async () => {
+    const loadVideoLibrary = vi.fn().mockResolvedValue({
+      videos: [readyVideo],
+      pageInfo: {
+        hasNextPage: true,
+        endCursor: "cursor-1",
+      },
+    });
+
+    renderApp(
+      <App
+        initialDashboardState={readyDashboardState}
+        uploadVideo={() => Promise.reject(new Error("unused upload client"))}
+        loadVideoLibrary={loadVideoLibrary}
+      />,
+      ["/videos"],
+    );
+
+    expect(screen.getByRole("heading", { name: "Manual upload" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Video library" })).toBeInTheDocument();
+    expect(screen.getAllByText("Loading video library").length).toBeGreaterThan(0);
+
+    await waitFor(() => {
+      expect(screen.getByText("demo.mp4")).toBeInTheDocument();
+    });
+
+    expect(loadVideoLibrary).toHaveBeenCalledWith({
+      first: 20,
+      q: "",
+      status: "",
+      source: "",
+      after: undefined,
+    });
+    expect(screen.getByText("video/mp4 · 4.0 MB")).toBeInTheDocument();
+    expect(screen.getByText("Duration: 1:05")).toBeInTheDocument();
+    expect(screen.getByText("Dimensions: 1920 x 1080")).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain("shopify-id-token");
+    expect(document.body.textContent).not.toContain("SHOPIFY_API_SECRET");
+  });
+
+  it("renders video library empty and safe error states", async () => {
+    const loadVideoLibrary = vi.fn().mockResolvedValueOnce(emptyVideoLibraryResult);
+
+    const { rerender } = renderApp(
+      <App initialDashboardState={readyDashboardState} loadVideoLibrary={loadVideoLibrary} />,
+      ["/videos"],
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("No videos found")).toBeInTheDocument();
+    });
+
+    rerender(
+      <AppProvider i18n={enTranslations}>
+        <MemoryRouter initialEntries={["/videos"]}>
+          <App
+            initialDashboardState={readyDashboardState}
+            loadVideoLibrary={() => Promise.reject(new Error("raw filesystem path failure"))}
+          />
+        </MemoryRouter>
+      </AppProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Video library unavailable")).toBeInTheDocument();
+    });
+    expect(screen.getByText(VIDEO_LIBRARY_SAFE_ERROR_MESSAGE)).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain("raw filesystem path failure");
+  });
+
+  it("filters and paginates the video library", async () => {
+    const secondVideo: VideoLibraryItem = {
+      ...readyVideo,
+      id: "video_2",
+      originalFilename: "second.mp4",
+      status: "UPLOADED",
+    };
+    const loadVideoLibrary = vi
+      .fn()
+      .mockResolvedValueOnce({
+        videos: [readyVideo],
+        pageInfo: {
+          hasNextPage: true,
+          endCursor: "cursor-1",
+        },
+      })
+      .mockResolvedValueOnce({
+        videos: [readyVideo],
+        pageInfo: {
+          hasNextPage: true,
+          endCursor: "cursor-2",
+        },
+      })
+      .mockResolvedValueOnce({
+        videos: [secondVideo],
+        pageInfo: {
+          hasNextPage: false,
+          endCursor: "cursor-3",
+        },
+      });
+
+    renderApp(
+      <App initialDashboardState={readyDashboardState} loadVideoLibrary={loadVideoLibrary} />,
+      ["/videos"],
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("demo.mp4")).toBeInTheDocument();
+    });
+
+    fireEvent.change(screen.getByLabelText("Search videos"), {
+      target: { value: "demo" },
+    });
+    fireEvent.change(screen.getByLabelText("Status"), {
+      target: { value: "READY" },
+    });
+    fireEvent.change(screen.getByLabelText("Source"), {
+      target: { value: "MANUAL_UPLOAD" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Apply filters" }));
+
+    await waitFor(() => {
+      expect(loadVideoLibrary).toHaveBeenLastCalledWith({
+        q: "demo",
+        status: "READY",
+        source: "MANUAL_UPLOAD",
+        first: 20,
+        after: undefined,
+      });
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Load more videos" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("second.mp4")).toBeInTheDocument();
+    });
+    expect(loadVideoLibrary).toHaveBeenLastCalledWith({
+      q: "demo",
+      status: "READY",
+      source: "MANUAL_UPLOAD",
+      first: 20,
+      after: "cursor-2",
+    });
+  });
+
+  it("loads video detail and archives videos safely", async () => {
+    const archivedVideo: VideoLibraryItem = {
+      ...readyVideo,
+      status: "ARCHIVED",
+      updatedAt: "2026-05-23T00:10:00.000Z",
+    };
+    const loadVideoLibrary = vi.fn().mockResolvedValue({
+      videos: [readyVideo],
+      pageInfo: {
+        hasNextPage: false,
+        endCursor: null,
+      },
+    });
+    const loadVideoDetail = vi.fn().mockResolvedValue(readyVideo);
+    const archiveVideo = vi.fn().mockResolvedValue(archivedVideo);
+
+    vi.stubGlobal("confirm", vi.fn(() => true));
+
+    renderApp(
+      <App
+        initialDashboardState={readyDashboardState}
+        loadVideoLibrary={loadVideoLibrary}
+        loadVideoDetail={loadVideoDetail}
+        archiveVideo={archiveVideo}
+      />,
+      ["/videos"],
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("demo.mp4")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "View details" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Video details")).toBeInTheDocument();
+    });
+    expect(loadVideoDetail).toHaveBeenCalledWith("video_1");
+    expect(screen.getByText("ID: video_1")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Archive" }));
+
+    await waitFor(() => {
+      expect(archiveVideo).toHaveBeenCalledWith("video_1");
+    });
+    expect(screen.getAllByText("ARCHIVED").length).toBeGreaterThan(0);
+    expect(document.body.textContent).not.toContain("DATABASE_URL");
+    expect(document.body.textContent).not.toContain("/tmp/shoppable-video-storage");
   });
 });

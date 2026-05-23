@@ -14,12 +14,20 @@ import {
   type AdminDashboardState,
 } from "../services/admin-shell";
 import type { ProductSearchClient } from "../services/product-search";
+import type {
+  VideoArchiveClient,
+  VideoDetailClient,
+  VideoLibraryClient,
+} from "../services/video-library";
 import type { VideoUploadClient } from "../services/video-upload";
 
 type AppProps = {
   initialDashboardState?: AdminDashboardState;
   loadDashboardContext?: AdminDashboardContextLoader;
   searchProducts?: ProductSearchClient;
+  loadVideoLibrary?: VideoLibraryClient;
+  loadVideoDetail?: VideoDetailClient;
+  archiveVideo?: VideoArchiveClient;
   uploadVideo?: VideoUploadClient;
 };
 
@@ -27,6 +35,9 @@ export function App({
   initialDashboardState,
   loadDashboardContext = fetchAdminDashboardContext,
   searchProducts,
+  loadVideoLibrary,
+  loadVideoDetail,
+  archiveVideo,
   uploadVideo,
 }: AppProps) {
   const [dashboardState, setDashboardState] = useState<AdminDashboardState>(
@@ -66,7 +77,17 @@ export function App({
         <Routes>
           <Route path="/" element={<DashboardPage dashboardState={dashboardState} />} />
           <Route path="/products" element={<ProductsPage searchProducts={searchProducts} />} />
-          <Route path="/videos" element={<VideosPage uploadVideo={uploadVideo} />} />
+          <Route
+            path="/videos"
+            element={
+              <VideosPage
+                uploadVideo={uploadVideo}
+                loadVideoLibrary={loadVideoLibrary}
+                loadVideoDetail={loadVideoDetail}
+                archiveVideo={archiveVideo}
+              />
+            }
+          />
         </Routes>
       </Frame>
     </AppErrorBoundary>
