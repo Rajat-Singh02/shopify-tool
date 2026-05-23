@@ -77,6 +77,58 @@ describe("uploadManualVideo", () => {
     expect(completeHeaders.get("Authorization")).toBe("Bearer shopify-id-token");
   });
 
+  it("does not send the App Bridge bearer token to cross-origin upload targets", async () => {
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        Response.json(
+          {
+            video: {
+              id: "video_1",
+              status: "UPLOADED",
+              source: "MANUAL_UPLOAD",
+              originalFilename: "demo.mp4",
+              contentType: "video/mp4",
+              sizeBytes: 4,
+            },
+            upload: {
+              method: "PUT",
+              url: "https://uploads.example.com/video_1",
+              headers: {
+                "Content-Type": "video/mp4",
+                "x-upload-token": "signed-upload-token",
+              },
+              expiresAt: "2026-05-23T00:15:00.000Z",
+            },
+          },
+          { status: 201 },
+        ),
+      )
+      .mockResolvedValueOnce(Response.json({ ok: true }))
+      .mockResolvedValueOnce(
+        Response.json({
+          video: {
+            id: "video_1",
+            status: "UPLOADED",
+            source: "MANUAL_UPLOAD",
+            originalFilename: "demo.mp4",
+            contentType: "video/mp4",
+            sizeBytes: 4,
+          },
+        }),
+      );
+
+    await uploadManualVideo(createVideoFile(), fetcher, () => Promise.resolve("shopify-id-token"));
+
+    const uploadHeaders = new Headers(fetcher.mock.calls[1]?.[1]?.headers);
+    const completeHeaders = new Headers(fetcher.mock.calls[2]?.[1]?.headers);
+
+    expect(fetcher.mock.calls[1]?.[0]).toBe("https://uploads.example.com/video_1");
+    expect(uploadHeaders.get("Authorization")).toBeNull();
+    expect(uploadHeaders.get("x-upload-token")).toBe("signed-upload-token");
+    expect(completeHeaders.get("Authorization")).toBe("Bearer shopify-id-token");
+  });
+
   it("throws a safe error when the backend rejects any upload step", async () => {
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
       new Response("raw storage failure", {

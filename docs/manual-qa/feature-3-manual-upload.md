@@ -52,6 +52,10 @@ QA Checklist
 - [ ] Success state shows video id/status.
 - [ ] Choose another/reset works.
 - [ ] Refresh page does not expose secrets or crash.
+- [ ] Upload network failure shows safe error and keeps the page usable.
+- [ ] Truncated upload or mismatched Content-Length is rejected safely.
+- [ ] Concurrent/repeated complete-upload requests do not create duplicate unsafe work.
+- [ ] Large-file behavior matches the current provider limits; serverless/local upload does not claim production-size signed URL support.
 
 ### E. Network/Security
 
@@ -60,6 +64,7 @@ QA Checklist
 - [ ] Do not copy/share the token.
 - [ ] Response body does not include `accessToken`, `session`, API secret, `DATABASE_URL`, filesystem path, or bearer token.
 - [ ] Local storage filesystem path is never exposed to browser.
+- [ ] Bearer token is sent only to same-origin admin API routes, not cross-origin upload targets.
 - [ ] Errors are safe merchant-facing messages.
 
 ### F. Supabase

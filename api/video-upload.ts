@@ -34,6 +34,7 @@ export type StorageProvider = {
   readonly name: "local";
   writeObject(input: StorageWriteInput): Promise<void>;
   objectExists(key: string): Promise<boolean>;
+  objectSize(key: string): Promise<number | null>;
 };
 
 export type VideoProcessingDispatcher = {
@@ -97,6 +98,17 @@ export class LocalStorageProvider implements StorageProvider {
       return objectStat.isFile();
     } catch {
       return false;
+    }
+  }
+
+  async objectSize(key: string): Promise<number | null> {
+    try {
+      const objectPath = this.resolveObjectPath(key);
+      const objectStat = await stat(objectPath);
+
+      return objectStat.isFile() ? objectStat.size : null;
+    } catch {
+      return null;
     }
   }
 
@@ -259,6 +271,12 @@ export async function completeManualUpload({
 
   if (!exists) {
     throw new VideoUploadExpectedError("Uploaded video object was not found", 400);
+  }
+
+  const storedSize = await storageProvider.objectSize(video.storageKeyOriginal);
+
+  if (storedSize !== Number(video.originalSizeBytes)) {
+    throw new VideoUploadExpectedError("Uploaded video size does not match intent", 400);
   }
 
   const completedVideo = await videoRepository.markOriginalUploadComplete(video);

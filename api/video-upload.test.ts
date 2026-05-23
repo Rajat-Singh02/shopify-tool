@@ -188,6 +188,15 @@ describe("manual video upload services", () => {
         env,
       }),
     ).rejects.toThrow(VideoUploadExpectedError);
+    await expect(
+      writeManualUploadObject({
+        video,
+        contentType: "video/mp4",
+        body: new Uint8Array([1, 2, 3]),
+        storageProvider: provider,
+        env,
+      }),
+    ).rejects.toThrow(VideoUploadExpectedError);
   });
 
   it("completes an upload only when the stored object exists", async () => {
@@ -202,6 +211,16 @@ describe("manual video upload services", () => {
         return Promise.resolve(input);
       },
     };
+
+    await expect(
+      completeManualUpload({ video, videoRepository, storageProvider: provider }),
+    ).rejects.toThrow(VideoUploadExpectedError);
+
+    await provider.writeObject({
+      key: video.storageKeyOriginal ?? "",
+      body: new Uint8Array([1, 2, 3]),
+      contentType: "video/mp4",
+    });
 
     await expect(
       completeManualUpload({ video, videoRepository, storageProvider: provider }),

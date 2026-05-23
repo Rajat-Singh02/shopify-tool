@@ -143,7 +143,7 @@ describe("Vercel runtime route surface", () => {
       message: string;
     };
 
-    expect(response.status).toBe(410);
+    expect(response.status).toBe(401);
     expect(body.message).toBe(
       "We could not search Shopify products. Reload the app from Shopify admin.",
     );
@@ -157,7 +157,7 @@ describe("Vercel runtime route surface", () => {
       message: string;
     };
 
-    expect(response.status).toBe(410);
+    expect(response.status).toBe(401);
     expect(body.message).toBe("We could not load analytics. Reload the app from Shopify admin.");
   });
 
@@ -293,7 +293,7 @@ describe("Vercel runtime route surface", () => {
     );
     const serializedBody = JSON.stringify(await response.json());
 
-    expect(response.status).toBe(410);
+    expect(response.status).toBe(401);
     expect(serializedBody).not.toContain("raw product token validation failure");
     expect(serializedBody).not.toContain("invalid-product-token");
   });
@@ -361,7 +361,7 @@ describe("Vercel runtime route surface", () => {
       },
       {
         q: "linen shirt",
-        first: 80,
+        first: 50,
         after: "cursor-0",
       },
     );
@@ -369,6 +369,54 @@ describe("Vercel runtime route surface", () => {
     expect(serializedBody).not.toContain("accessToken");
     expect(serializedBody).not.toContain("session");
     expect(serializedBody).not.toContain("SHOPIFY_API_SECRET");
+  });
+
+  it("sanitizes product search query operators and rejects invalid page sizes before the service boundary", async () => {
+    const searchProducts = vi.fn().mockResolvedValue({
+      products: [],
+      pageInfo: {
+        hasNextPage: false,
+        endCursor: null,
+      },
+    });
+    const dependencies = {
+      authenticateAdmin() {
+        return Promise.resolve({
+          session: {
+            shop: "test-shop.myshopify.com",
+          },
+        });
+      },
+      loadProductSearchSession(shopDomain: string) {
+        return Promise.resolve({
+          shop: shopDomain,
+          accessToken: "offline-token",
+        });
+      },
+      searchProducts,
+    };
+    const response = await handleVercelRuntimeRequest(
+      new Request(
+        "https://app.example.test/api/admin/products/search?q=linen%20title:secret%20-(draft)&first=0",
+      ),
+      dependencies,
+    );
+    const sanitizedResponse = await handleVercelRuntimeRequest(
+      new Request(
+        "https://app.example.test/api/admin/products/search?q=linen%20title:secret%20-(draft)&first=25",
+      ),
+      dependencies,
+    );
+
+    expect(response.status).toBe(400);
+    expect(sanitizedResponse.status).toBe(200);
+    expect(searchProducts).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.objectContaining({
+        q: "linen",
+        first: 25,
+      }),
+    );
   });
 
   it("returns a safe admin widget response when no bearer token is present", async () => {
@@ -379,7 +427,7 @@ describe("Vercel runtime route surface", () => {
       message: string;
     };
 
-    expect(response.status).toBe(410);
+    expect(response.status).toBe(401);
     expect(body.message).toBe("We could not update widgets. Reload the app from Shopify admin.");
   });
 
@@ -570,6 +618,24 @@ describe("Vercel runtime route surface", () => {
     expect(script).not.toContain("accessToken");
   });
 
+  it("serves public storefront preflight responses with safe CORS headers", async () => {
+    const scriptPreflight = await handleVercelRuntimeRequest(
+      new Request("https://app.example.test/widget.js", {
+        method: "OPTIONS",
+      }),
+    );
+    const eventPreflight = await handleVercelRuntimeRequest(
+      new Request("https://app.example.test/api/storefront/events", {
+        method: "OPTIONS",
+      }),
+    );
+
+    expect(scriptPreflight.status).toBe(204);
+    expect(eventPreflight.status).toBe(204);
+    expect(scriptPreflight.headers.get("Access-Control-Allow-Origin")).toBe("*");
+    expect(eventPreflight.headers.get("Access-Control-Allow-Origin")).toBe("*");
+  });
+
   it("serves a public storefront widget payload without admin auth", async () => {
     const loadStorefrontWidget = vi.fn().mockResolvedValue({
       widget: {
@@ -730,6 +796,32 @@ describe("Vercel runtime route surface", () => {
     expect(unsupportedTypeResponse.status).toBe(415);
   });
 
+  it("rejects oversized storefront event bodies before recording", async () => {
+    const recordStorefrontEvent = vi.fn();
+    const response = await handleVercelRuntimeRequest(
+      new Request("https://app.example.test/api/storefront/events", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          shop: "test-shop.myshopify.com",
+          widgetId: "widget_1",
+          eventType: "WIDGET_VIEW",
+          metadata: {
+            big: "x".repeat(9000),
+          },
+        }),
+      }),
+      {
+        recordStorefrontEvent,
+      },
+    );
+
+    expect(response.status).toBe(413);
+    expect(recordStorefrontEvent).not.toHaveBeenCalled();
+  });
+
   it("returns a safe setup response when no offline Shopify session exists", async () => {
     const response = await handleVercelRuntimeRequest(
       new Request("https://app.example.test/api/admin/products/search"),
@@ -771,7 +863,7 @@ describe("Vercel runtime route surface", () => {
       message: string;
     };
 
-    expect(response.status).toBe(410);
+    expect(response.status).toBe(401);
     expect(body.message).toBe(
       "We could not handle the video upload request. Reload the app from Shopify admin.",
     );
@@ -798,7 +890,7 @@ describe("Vercel runtime route surface", () => {
     );
     const serializedBody = JSON.stringify(await response.json());
 
-    expect(response.status).toBe(410);
+    expect(response.status).toBe(401);
     expect(serializedBody).not.toContain("raw video token validation failure");
     expect(serializedBody).not.toContain("invalid-video-token");
   });
@@ -811,7 +903,7 @@ describe("Vercel runtime route surface", () => {
       message: string;
     };
 
-    expect(response.status).toBe(410);
+    expect(response.status).toBe(401);
     expect(body.message).toBe(
       "We could not load the video library. Reload the app from Shopify admin.",
     );
@@ -970,7 +1062,7 @@ describe("Vercel runtime route surface", () => {
       message: string;
     };
 
-    expect(response.status).toBe(410);
+    expect(response.status).toBe(401);
     expect(body.message).toBe(
       "We could not update video product tags. Reload the app from Shopify admin.",
     );

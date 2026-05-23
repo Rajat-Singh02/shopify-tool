@@ -291,6 +291,134 @@ describe("admin app shell", () => {
     });
   });
 
+  it("uses the executed product query when loading more after the input changes", async () => {
+    const searchProducts = vi
+      .fn()
+      .mockResolvedValueOnce({
+        products: [
+          {
+            id: "gid://shopify/Product/1",
+            title: "First Product",
+            handle: "first-product",
+            status: "ACTIVE",
+            featuredImage: null,
+            variants: [],
+          },
+        ],
+        pageInfo: {
+          hasNextPage: true,
+          endCursor: "cursor-1",
+        },
+      })
+      .mockResolvedValueOnce({
+        products: [
+          {
+            id: "gid://shopify/Product/2",
+            title: "Second Product",
+            handle: "second-product",
+            status: "ACTIVE",
+            featuredImage: null,
+            variants: [],
+          },
+        ],
+        pageInfo: {
+          hasNextPage: false,
+          endCursor: "cursor-2",
+        },
+      });
+    renderApp(
+      <App initialDashboardState={readyDashboardState} searchProducts={searchProducts} />,
+      ["/products"],
+    );
+
+    fireEvent.change(screen.getByLabelText("Search products"), {
+      target: { value: "linen" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Search" }));
+    await waitFor(() => {
+      expect(screen.getByText("First Product")).toBeInTheDocument();
+    });
+
+    fireEvent.change(screen.getByLabelText("Search products"), {
+      target: { value: "wool" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Load more" }));
+    await waitFor(() => {
+      expect(screen.getByText("Second Product")).toBeInTheDocument();
+    });
+
+    expect(searchProducts).toHaveBeenLastCalledWith({
+      q: "linen",
+      first: 20,
+      after: "cursor-1",
+    });
+  });
+
+  it("ignores stale product search responses from older requests", async () => {
+    let resolveFirstSearch: ((value: unknown) => void) | undefined;
+    const searchProducts = vi
+      .fn()
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolveFirstSearch = resolve;
+        }),
+      )
+      .mockResolvedValueOnce({
+        products: [
+          {
+            id: "gid://shopify/Product/2",
+            title: "Fresh Product",
+            handle: "fresh-product",
+            status: "ACTIVE",
+            featuredImage: null,
+            variants: [],
+          },
+        ],
+        pageInfo: {
+          hasNextPage: false,
+          endCursor: null,
+        },
+      });
+    renderApp(
+      <App initialDashboardState={readyDashboardState} searchProducts={searchProducts} />,
+      ["/products"],
+    );
+
+    fireEvent.change(screen.getByLabelText("Search products"), {
+      target: { value: "old" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Search" }));
+    fireEvent.change(screen.getByLabelText("Search products"), {
+      target: { value: "fresh" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Search" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Fresh Product")).toBeInTheDocument();
+    });
+
+    resolveFirstSearch?.({
+      products: [
+        {
+          id: "gid://shopify/Product/1",
+          title: "Stale Product",
+          handle: "stale-product",
+          status: "ACTIVE",
+          featuredImage: null,
+          variants: [],
+        },
+      ],
+      pageInfo: {
+        hasNextPage: false,
+        endCursor: null,
+      },
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByText("Stale Product")).not.toBeInTheDocument();
+    });
+  });
+
   it("renders the videos upload page and uploads a selected video", async () => {
     const uploadVideo = vi.fn().mockResolvedValue({
       video: {
@@ -925,7 +1053,7 @@ describe("admin app shell", () => {
       source: "MANUAL_UPLOAD",
     });
     expect(screen.getByLabelText("Widget embed snippet").textContent).toContain(
-      "https://shopify-tool-git-main-rajat-sahadev-s-projects.vercel.app/widget.js",
+      "http://localhost:3000/widget.js",
     );
     expect(screen.getByLabelText("Widget embed snippet").textContent).toContain(
       'data-shop="test-shop.myshopify.com"',

@@ -59,6 +59,8 @@
 - [ ] Filters call API with expected query params.
 - [ ] Clearing filters returns default list.
 - [ ] Invalid filter values do not crash UI.
+- [ ] Expired/missing bearer token shows a safe auth error.
+- [ ] Rapid filter/search changes do not let stale responses overwrite the current list.
 
 ### E. Pagination
 
@@ -67,6 +69,8 @@
 - [ ] Loading state appears for pagination.
 - [ ] Loaded items append or update predictably.
 - [ ] No obvious duplicate rows are shown.
+- [ ] Invalid/tampered cursor returns a safe 400 response.
+- [ ] Double-clicking Load more does not duplicate rows.
 
 ### F. Detail Behavior
 
@@ -87,6 +91,7 @@
 - [ ] Repeating archive is safe/idempotent.
 - [ ] Archive does not claim physical deletion.
 - [ ] Archive/wrong-shop behavior returns safe error if testable.
+- [ ] Cross-shop video IDs cannot be viewed or archived.
 
 ### H. Network/Security
 

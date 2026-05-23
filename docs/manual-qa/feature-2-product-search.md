@@ -39,6 +39,12 @@
 - [ ] API error displays safe error state.
 - [ ] Load more appears only when `pageInfo.hasNextPage` is true.
 - [ ] Load more appends/loads next page and does not duplicate obvious rows.
+- [ ] Empty, long, special-character, and Unicode searches return safe results or safe empty states.
+- [ ] Shopify search qualifiers/operators in merchant input do not expose raw backend behavior.
+- [ ] Editing the search box before selecting Load more keeps pagination tied to the executed search.
+- [ ] Rapid repeated searches do not let older responses overwrite newer results.
+- [ ] Expired/missing bearer token returns a safe auth error and does not expose token details.
+- [ ] Double-clicking Load more or reaching the terminal page does not duplicate rows or re-enable pagination incorrectly.
 
 ## D. Network And Security
 

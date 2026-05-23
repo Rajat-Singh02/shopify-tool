@@ -135,7 +135,11 @@ export async function attachAdminWidgetVideo({
     throw new AdminWidgetExpectedError("Only ready videos can be attached to a widget", 409);
   }
 
-  await widgetRepository.attachVideo(shop.id, widget.id, video);
+  const nextPosition =
+    widget.widgetVideos.reduce((position, widgetVideo) => Math.max(position, widgetVideo.position), -1) +
+    1;
+
+  await widgetRepository.attachVideo(shop.id, widget.id, video, nextPosition);
   const updatedWidget = await widgetRepository.findByShop(shop.id, widget.id);
 
   if (!updatedWidget) {

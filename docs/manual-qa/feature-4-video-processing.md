@@ -43,6 +43,8 @@
 - [ ] Final status becomes processed/ready equivalent if ffprobe succeeds.
 - [ ] If ffprobe fails, status becomes failed equivalent with safe reason.
 - [ ] Repeating complete-upload does not dispatch duplicate processing for already processing/ready/failed video.
+- [ ] Concurrent workers/completions claim processing once; duplicate workers exit safely.
+- [ ] Failed processing keeps the original safe failure reason even if marking failed encounters an error.
 
 ### D. Metadata Verification
 
@@ -51,6 +53,7 @@
 - [ ] Height is captured when available.
 - [ ] Format/codec may be parsed but not persisted if schema does not support it.
 - [ ] Metadata values are reasonable for the test file.
+- [ ] Corrupt files, large files, and varied codec/container files produce expected ready or failed states.
 - [ ] No filesystem paths are exposed to browser responses.
 
 Useful Supabase SQL:

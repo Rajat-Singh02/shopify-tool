@@ -38,9 +38,6 @@ import {
 } from "../services/video-library";
 import { formatVideoFileSize } from "../services/video-upload";
 
-const WIDGET_SCRIPT_URL =
-  "https://shopify-tool-git-main-rajat-sahadev-s-projects.vercel.app/widget.js";
-
 type WidgetsPageProps = {
   shopDomain?: string;
   loadWidgets?: AdminWidgetListClient;
@@ -97,8 +94,9 @@ export function WidgetsPage({
     () => new Set(selectedWidget?.videos.map((video) => video.id) ?? []),
     [selectedWidget],
   );
+  const widgetScriptUrl = useMemo(() => getWidgetScriptUrl(), []);
   const embedSnippet = selectedWidget
-    ? `<script src="${WIDGET_SCRIPT_URL}" data-shop="${
+    ? `<script src="${widgetScriptUrl}" data-shop="${
         shopDomain ?? "SHOP_DOMAIN"
       }" data-widget-id="${selectedWidget.id}"></script>`
     : "";
@@ -485,6 +483,14 @@ export function WidgetsPage({
       </BlockStack>
     </Page>
   );
+}
+
+function getWidgetScriptUrl(): string {
+  if (typeof window === "undefined") {
+    return "/widget.js";
+  }
+
+  return `${window.location.origin}/widget.js`;
 }
 
 function WidgetSummaryCard({

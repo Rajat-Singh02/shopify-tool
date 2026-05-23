@@ -87,6 +87,16 @@ export type VideoRepositoryClient = {
             status: "ARCHIVED";
           };
     }): Promise<VideoRecord>;
+    updateMany?(args: {
+      where: {
+        id: string;
+        status: "UPLOADED";
+      };
+      data: {
+        status: "PROCESSING";
+        failureReason: null;
+      };
+    }): Promise<{ count: number }>;
   };
 };
 
@@ -253,6 +263,35 @@ export class VideoRepository {
         failureReason: null,
       },
     });
+  }
+
+  async tryClaimProcessing(videoId: string): Promise<VideoRecord | null> {
+    if (!this.client.video.updateMany) {
+      const video = await this.findById(videoId);
+
+      if (video?.status !== "UPLOADED") {
+        return null;
+      }
+
+      return this.markProcessing(videoId);
+    }
+
+    const result = await this.client.video.updateMany({
+      where: {
+        id: videoId,
+        status: "UPLOADED",
+      },
+      data: {
+        status: "PROCESSING",
+        failureReason: null,
+      },
+    });
+
+    if (result.count === 0) {
+      return null;
+    }
+
+    return this.findById(videoId);
   }
 
   async markReady(videoId: string, metadata: VideoMetadataUpdate): Promise<VideoRecord> {

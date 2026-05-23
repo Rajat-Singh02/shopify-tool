@@ -61,6 +61,7 @@
 - [ ] Products with no variants show safe no-variants state.
 - [ ] API errors show safe merchant-facing error.
 - [ ] Product-only tag action is not available because backend requires `variantId`.
+- [ ] Rapid product searches do not let stale search results replace the current query results.
 
 ### E. Add Tag
 
@@ -72,6 +73,7 @@
 - [ ] Successful add updates tag list.
 - [ ] Adding the same product/variant twice does not create duplicate visible active tags.
 - [ ] Backend idempotency is handled gracefully.
+- [ ] Add failures do not wipe the existing valid tag list.
 - [ ] Invalid GIDs are rejected safely if tested.
 
 ### F. Remove Tag
@@ -81,6 +83,7 @@
 - [ ] Successful remove updates tag list.
 - [ ] Removing already-removed/missing tag shows safe behavior.
 - [ ] Wrong-video/wrong-shop behavior returns safe error if testable.
+- [ ] Cross-shop tag IDs cannot be removed from the current shop video.
 
 ### G. Archived Video Behavior
 

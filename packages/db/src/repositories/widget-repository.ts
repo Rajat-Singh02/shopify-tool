@@ -224,6 +224,7 @@ export class WidgetRepository {
     shopId: string,
     widgetId: string,
     video: VideoRecord,
+    position = 0,
   ): Promise<AdminWidgetRecord["widgetVideos"][number]> {
     const existing = await this.client.widgetVideo.findFirst({
       where: {
@@ -246,7 +247,7 @@ export class WidgetRepository {
         shopId,
         widgetId,
         videoId: video.id,
-        position: 0,
+        position,
       },
       include: {
         video: true,

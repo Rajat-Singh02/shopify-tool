@@ -85,6 +85,8 @@ GET https://shopify-tool-git-main-rajat-sahadev-s-projects.vercel.app/api/storef
 - [ ] Missing widget returns safe 404.
 - [ ] Wrong shop returns safe 404.
 - [ ] Invalid shop/widgetId returns safe 400.
+- [ ] Public payload responses include CORS headers and support OPTIONS preflight.
+- [ ] Multi-video widgets return deterministic video ordering.
 
 ### F. widget.js Storefront Smoke
 
@@ -93,9 +95,13 @@ GET https://shopify-tool-git-main-rajat-sahadev-s-projects.vercel.app/api/storef
 - [ ] `widget.js` reads `data-shop` and `data-widget-id`.
 - [ ] `widget.js` fetches the public widget payload.
 - [ ] Widget container renders.
+- [ ] Script can be placed in the head or body and still mounts into a body-safe location.
+- [ ] Widget styles are isolated from the theme where supported.
 - [ ] Video placeholders or videos render depending on `publicUrl` availability.
 - [ ] Product/variant tag text/buttons render safely.
 - [ ] If payload fetch fails, widget fails gracefully without breaking the page.
+- [ ] CSP/theme custom liquid constraints are checked for blocked script, fetch, and inline-style behavior.
+- [ ] Keyboard focus and screen reader labels are acceptable for rendered widget controls.
 - [ ] No analytics events are sent in Feature 7.
 
 ### G. Network/Security
