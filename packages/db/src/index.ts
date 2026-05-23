@@ -19,6 +19,14 @@ export function assertShopScope(context: RepositoryContext): string {
 
 export { createPrismaClient, getPrismaClient } from "./prisma.js";
 export {
+  AnalyticsEventRepository,
+  type AnalyticsMetadataValue,
+  type AnalyticsEventRecord,
+  type AnalyticsEventRepositoryClient,
+  type AnalyticsEventType,
+  type CreateAnalyticsEventInput,
+} from "./repositories/analytics-event-repository.js";
+export {
   ShopRepository,
   type ShopRecord,
   type ShopRepositoryClient,

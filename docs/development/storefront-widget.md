@@ -12,7 +12,7 @@ Feature 7A adds public storefront routes for loading a shoppable video widget pa
 ></script>
 ```
 
-The script reads `data-shop` and `data-widget-id`, fetches the public widget payload, and renders a minimal widget container. It does not send analytics in this feature.
+The script reads `data-shop` and `data-widget-id`, fetches the public widget payload, renders a minimal widget container, and sends minimal privacy-safe widget interaction events.
 
 ## Public Routes
 
@@ -25,6 +25,11 @@ The script reads `data-shop` and `data-widget-id`, fetches the public widget pay
   - Returns one published widget for the requested shop.
   - Public route, no admin session required.
   - Returns only public-safe widget, video, and product tag fields.
+
+- `POST /api/storefront/events`
+  - Records privacy-safe widget interaction events.
+  - Public route, no admin session required.
+  - Does not require cookies or bearer tokens.
 
 ## Public Data Rules
 
@@ -70,7 +75,7 @@ The admin Widgets page lists widgets, creates widgets, edits title/status, attac
 
 ## Current Limitations
 
-- No analytics yet.
+- No admin analytics dashboard or charts yet.
 - No theme app extension yet.
 - No advanced styling or layout editor yet.
 - Public media URL may be null until media serving is finalized.

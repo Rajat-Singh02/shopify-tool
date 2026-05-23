@@ -8,6 +8,7 @@ import {
   handleVercelRuntimeRequest,
   resolveVercelRuntimeRoute,
 } from "./[...path]";
+import { StorefrontAnalyticsExpectedError } from "./storefront-analytics";
 import { StorefrontWidgetExpectedError } from "./storefront-widget";
 
 describe("Vercel runtime route surface", () => {
@@ -40,6 +41,7 @@ describe("Vercel runtime route surface", () => {
     ["/api/admin-videos/upload-intent", "video-upload"],
     ["/widget.js", "storefront-widget"],
     ["/api/storefront/widgets/widget_1", "storefront-widget"],
+    ["/api/storefront/events", "storefront-event"],
     ["/api/webhooks", "webhook"],
     ["/webhooks", "webhook"],
     ["/api/auth/callback", "auth"],
@@ -430,6 +432,8 @@ describe("Vercel runtime route surface", () => {
     expect(response.headers.get("Content-Type")).toContain("application/javascript");
     expect(script).toContain("data-shop");
     expect(script).toContain("data-widget-id");
+    expect(script).toContain("/api/storefront/events");
+    expect(script).toContain("sendBeacon");
     expect(script).not.toContain("SHOPIFY_API_SECRET");
     expect(script).not.toContain("DATABASE_URL");
     expect(script).not.toContain("accessToken");
@@ -512,6 +516,87 @@ describe("Vercel runtime route surface", () => {
     expect(invalidShopBody.message).toBe("shop is invalid");
     expect(missingWidgetResponse.status).toBe(404);
     expect(serializedMissingWidgetBody).not.toContain("raw missing widget details");
+  });
+
+  it("records public storefront events without admin auth", async () => {
+    const recordStorefrontEvent = vi.fn().mockResolvedValue({ ok: true });
+    const response = await handleVercelRuntimeRequest(
+      new Request("https://app.example.test/api/storefront/events", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Cookie: "ignored-cookie=1",
+        },
+        body: JSON.stringify({
+          shop: "test-shop.myshopify.com",
+          widgetId: "widget_1",
+          videoId: "video_1",
+          eventType: "VIDEO_PLAY",
+        }),
+      }),
+      {
+        recordStorefrontEvent,
+      },
+    );
+    const body = (await response.json()) as { ok: true };
+    const serializedBody = JSON.stringify(body);
+
+    expect(response.status).toBe(200);
+    expect(body.ok).toBe(true);
+    expect(recordStorefrontEvent).toHaveBeenCalledWith({
+      shop: "test-shop.myshopify.com",
+      widgetId: "widget_1",
+      videoId: "video_1",
+      eventType: "VIDEO_PLAY",
+    });
+    expect(serializedBody).not.toContain("Cookie");
+    expect(serializedBody).not.toContain("Authorization");
+    expect(serializedBody).not.toContain("DATABASE_URL");
+  });
+
+  it("returns safe storefront event validation errors", async () => {
+    const invalidJsonResponse = await handleVercelRuntimeRequest(
+      new Request("https://app.example.test/api/storefront/events", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: "{",
+      }),
+    );
+    const invalidTypeResponse = await handleVercelRuntimeRequest(
+      new Request("https://app.example.test/api/storefront/events", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          shop: "test-shop.myshopify.com",
+          widgetId: "widget_1",
+          eventType: "UNKNOWN",
+        }),
+      }),
+      {
+        recordStorefrontEvent() {
+          return Promise.reject(
+            new StorefrontAnalyticsExpectedError("eventType is invalid", 400),
+          );
+        },
+      },
+    );
+    const unsupportedTypeResponse = await handleVercelRuntimeRequest(
+      new Request("https://app.example.test/api/storefront/events", {
+        method: "POST",
+        headers: {
+          "Content-Type": "text/plain",
+        },
+        body: "event",
+      }),
+    );
+
+    expect(invalidJsonResponse.status).toBe(400);
+    expect(invalidTypeResponse.status).toBe(400);
+    expect(unsupportedTypeResponse.status).toBe(415);
   });
 
   it("returns a safe setup response when no offline Shopify session exists", async () => {

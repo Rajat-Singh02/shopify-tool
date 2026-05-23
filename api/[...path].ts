@@ -27,6 +27,11 @@ import {
   type PublicStorefrontWidgetPayload,
 } from "./storefront-widget.js";
 import {
+  ingestStorefrontAnalyticsEvent,
+  StorefrontAnalyticsExpectedError,
+  type StorefrontAnalyticsResponse,
+} from "./storefront-analytics.js";
+import {
   completeManualUpload,
   createManualUploadIntent,
   createStorageProviderFromEnv,
@@ -60,6 +65,7 @@ type VercelRuntimeRoute =
   | "auth"
   | "health"
   | "product-search"
+  | "storefront-event"
   | "storefront-widget"
   | "video-library"
   | "video-product-tags"
@@ -129,6 +135,7 @@ type RuntimeDependencies = {
   handleAdminDashboard?: (request: Request) => Promise<Response>;
   handleAdminWidget?: (request: Request) => Promise<Response>;
   handleProductSearch?: (request: Request) => Promise<Response>;
+  handleStorefrontEvent?: (request: Request) => Promise<Response>;
   handleStorefrontWidget?: (request: Request) => Promise<Response>;
   handleVideoLibrary?: (request: Request) => Promise<Response>;
   handleVideoProductTags?: (request: Request) => Promise<Response>;
@@ -145,6 +152,7 @@ type RuntimeDependencies = {
     shopDomain: string,
     widgetId: string,
   ) => Promise<PublicStorefrontWidgetPayload>;
+  recordStorefrontEvent?: (input: unknown) => Promise<StorefrontAnalyticsResponse>;
   listAdminWidgets?: (shop: VideoUploadShop) => Promise<AdminWidgetListResponse>;
   createAdminWidget?: (shop: VideoUploadShop, input: unknown) => Promise<SafeAdminWidgetDto>;
   getAdminWidget?: (shop: VideoUploadShop, widgetId: string) => Promise<SafeAdminWidgetDto>;
@@ -214,6 +222,10 @@ export default async function handler(
 }
 
 export function resolveVercelRuntimeRoute(pathname: string): VercelRuntimeRoute {
+  if (pathname === "/api/storefront/events") {
+    return "storefront-event";
+  }
+
   if (pathname === "/widget.js" || /^\/api\/storefront\/widgets\/[^/]+$/.test(pathname)) {
     return "storefront-widget";
   }
@@ -312,6 +324,10 @@ export async function handleVercelRuntimeRequest(
 
   if (route === "storefront-widget") {
     return handleStorefrontWidgetRequest(request, dependencies);
+  }
+
+  if (route === "storefront-event") {
+    return handleStorefrontEventRequest(request, dependencies);
   }
 
   if (route === "video-library") {
@@ -899,6 +915,100 @@ function logAdminWidgetError(error: unknown): void {
 function adminWidgetFailureResponse(
   status: number,
   message = "We could not update widgets. Reload the app from Shopify admin.",
+): Response {
+  return Response.json(
+    {
+      message,
+    },
+    {
+      status,
+      headers: {
+        "Cache-Control": "no-store",
+      },
+    },
+  );
+}
+
+async function handleStorefrontEventRequest(
+  request: Request,
+  { handleStorefrontEvent, recordStorefrontEvent }: RuntimeDependencies,
+): Promise<Response> {
+  if (handleStorefrontEvent) {
+    return handleStorefrontEvent(request);
+  }
+
+  if (request.method !== "POST") {
+    return storefrontEventFailureResponse(405, "Storefront events only support POST requests.");
+  }
+
+  const contentType = request.headers.get("Content-Type") ?? "";
+
+  if (!contentType.toLowerCase().includes("application/json")) {
+    return storefrontEventFailureResponse(415, "Storefront events require JSON.");
+  }
+
+  const contentLength = Number(request.headers.get("Content-Length") ?? "0");
+
+  if (Number.isFinite(contentLength) && contentLength > 8192) {
+    return storefrontEventFailureResponse(413, "Storefront event payload is too large.");
+  }
+
+  try {
+    const body = await parseStorefrontEventJsonRequestBody(request);
+    const result = recordStorefrontEvent
+      ? await recordStorefrontEvent(body)
+      : await recordStorefrontEventWithDatabase(body);
+
+    return Response.json(result, {
+      headers: {
+        "Cache-Control": "no-store",
+      },
+    });
+  } catch (error) {
+    if (error instanceof StorefrontAnalyticsExpectedError) {
+      return storefrontEventFailureResponse(error.status, error.clientMessage);
+    }
+
+    logStorefrontEventError(error);
+    return storefrontEventFailureResponse(500);
+  }
+}
+
+async function parseStorefrontEventJsonRequestBody(request: Request): Promise<unknown> {
+  try {
+    return (await request.json()) as unknown;
+  } catch {
+    throw new StorefrontAnalyticsExpectedError("Request body must be valid JSON", 400);
+  }
+}
+
+async function recordStorefrontEventWithDatabase(
+  input: unknown,
+): Promise<StorefrontAnalyticsResponse> {
+  const { AnalyticsEventRepository, WidgetRepository, getPrismaClient } = await import(
+    "@shoppable-video/db"
+  );
+  const prismaClient = getPrismaClient();
+
+  return ingestStorefrontAnalyticsEvent({
+    input,
+    widgetRepository: new WidgetRepository(prismaClient),
+    analyticsEventRepository: new AnalyticsEventRepository(prismaClient),
+  });
+}
+
+function logStorefrontEventError(error: unknown): void {
+  const reason = error instanceof Error ? error.name : "UnknownStorefrontEventError";
+
+  console.error("Failed to handle storefront analytics event", {
+    operation: "storefront.events",
+    reason,
+  });
+}
+
+function storefrontEventFailureResponse(
+  status: number,
+  message = "We could not record the storefront event.",
 ): Response {
   return Response.json(
     {
