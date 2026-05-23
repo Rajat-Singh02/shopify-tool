@@ -41,6 +41,12 @@ export {
   type VideoStatus,
 } from "./repositories/video-repository.js";
 export {
+  VideoProductTagRepository,
+  type UpsertVideoProductTagInput,
+  type VideoProductTagRecord,
+  type VideoProductTagRepositoryClient,
+} from "./repositories/video-product-tag-repository.js";
+export {
   PrismaShopifySessionStorage,
   type ShopifySessionRecord,
   type ShopifySessionStorageClient,
