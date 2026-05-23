@@ -34,13 +34,16 @@ function createVideo(overrides: Partial<VideoRecord> = {}): VideoRecord {
 function createClient(existingVideo: VideoRecord | null = null): {
   client: VideoRepositoryClient;
   created: VideoRecord[];
+  foundManyArgs: unknown[];
   updated: VideoRecord[];
 } {
   const created: VideoRecord[] = [];
+  const foundManyArgs: unknown[] = [];
   const updated: VideoRecord[] = [];
 
   return {
     created,
+    foundManyArgs,
     updated,
     client: {
       video: {
@@ -64,11 +67,28 @@ function createClient(existingVideo: VideoRecord | null = null): {
           return Promise.resolve(existingVideo?.id === where.id ? existingVideo : null);
         },
         findFirst({ where }) {
-          if (existingVideo?.id === where.id && existingVideo.shopId === where.shopId) {
+          if (existingVideo && existingVideo.id === where.id && existingVideo.shopId === where.shopId) {
             return Promise.resolve(existingVideo);
           }
 
           return Promise.resolve(null);
+        },
+        findMany(args) {
+          foundManyArgs.push(args);
+
+          if (!existingVideo) {
+            return Promise.resolve([]);
+          }
+
+          return Promise.resolve(
+            [
+              existingVideo,
+              createVideo({
+                id: "video_2",
+                createdAt: new Date("2026-05-22T00:00:00.000Z"),
+              }),
+            ].slice(0, args.take),
+          );
         },
         update({ data }) {
           const video = createVideo({
@@ -161,6 +181,75 @@ describe("VideoRepository", () => {
     expect(updated[2]).toMatchObject({
       status: "FAILED",
       failureReason: "ffprobe failed with details",
+    });
+  });
+
+  it("lists videos by shop with filters and cursor pagination", async () => {
+    const existingVideo = createVideo();
+    const { client, foundManyArgs } = createClient(existingVideo);
+    const repository = new VideoRepository(client);
+
+    const firstPage = await repository.listByShop({
+      shopId: "shop_1",
+      first: 1,
+      status: "READY",
+      source: "MANUAL_UPLOAD",
+      q: "demo",
+    });
+    const secondPage = await repository.listByShop({
+      shopId: "shop_1",
+      first: 1,
+      after: firstPage.pageInfo.endCursor,
+    });
+
+    expect(firstPage.videos).toHaveLength(1);
+    expect(firstPage.pageInfo.hasNextPage).toBe(true);
+    expect(firstPage.pageInfo.endCursor).toEqual(expect.any(String));
+    expect(secondPage.videos).toHaveLength(1);
+    expect(foundManyArgs[0]).toMatchObject({
+      where: {
+        shopId: "shop_1",
+        status: "READY",
+        source: "MANUAL_UPLOAD",
+        originalFilename: {
+          contains: "demo",
+          mode: "insensitive",
+        },
+      },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      take: 2,
+    });
+    expect(foundManyArgs[1]).toMatchObject({
+      where: {
+        shopId: "shop_1",
+        AND: [
+          {
+            OR: expect.any(Array) as unknown,
+          },
+        ],
+      },
+    });
+  });
+
+  it("archives videos by shop idempotently", async () => {
+    const existingVideo = createVideo();
+    const { client, updated } = createClient(existingVideo);
+    const repository = new VideoRepository(client);
+
+    const archived = await repository.archiveByShop("shop_1", "video_1");
+    const repeated = await new VideoRepository(createClient(createVideo({ status: "ARCHIVED" })).client)
+      .archiveByShop("shop_1", "video_1");
+    const missing = await repository.archiveByShop("other_shop", "video_1");
+
+    expect(archived).toMatchObject({
+      status: "ARCHIVED",
+    });
+    expect(repeated).toMatchObject({
+      status: "ARCHIVED",
+    });
+    expect(missing).toBeNull();
+    expect(updated[0]).toMatchObject({
+      status: "ARCHIVED",
     });
   });
 });

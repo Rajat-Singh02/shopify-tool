@@ -24,6 +24,9 @@ describe("Vercel runtime route surface", () => {
     ["/api/admin-dashboard", "admin-dashboard"],
     ["/api/admin/products/search", "product-search"],
     ["/api/admin-products-search", "product-search"],
+    ["/api/admin/videos", "video-library"],
+    ["/api/admin/videos/video_1", "video-library"],
+    ["/api/admin/videos/video_1/archive", "video-library"],
     ["/api/admin/videos/upload-intent", "video-upload"],
     ["/api/admin/videos/video_1/upload", "video-upload"],
     ["/api/admin/videos/video_1/complete-upload", "video-upload"],
@@ -297,6 +300,165 @@ describe("Vercel runtime route surface", () => {
     expect(response.status).toBe(410);
     expect(serializedBody).not.toContain("raw video token validation failure");
     expect(serializedBody).not.toContain("invalid-video-token");
+  });
+
+  it("returns a safe video library response when no bearer token is present", async () => {
+    const response = await handleVercelRuntimeRequest(
+      new Request("https://app.example.test/api/admin/videos"),
+    );
+    const body = (await response.json()) as {
+      message: string;
+    };
+
+    expect(response.status).toBe(410);
+    expect(body.message).toBe(
+      "We could not load the video library. Reload the app from Shopify admin.",
+    );
+  });
+
+  it("lists videos for an authenticated shop through the runtime adapter", async () => {
+    const listVideos = vi.fn().mockResolvedValue({
+      videos: [
+        {
+          id: "video_1",
+          source: "MANUAL_UPLOAD",
+          status: "READY",
+          originalFilename: "demo.mp4",
+          contentType: "video/mp4",
+          sizeBytes: 4,
+          durationMs: 1234,
+          width: 1280,
+          height: 720,
+          createdAt: "2026-05-23T00:00:00.000Z",
+          updatedAt: "2026-05-23T00:00:00.000Z",
+        },
+      ],
+      pageInfo: {
+        hasNextPage: false,
+        endCursor: null,
+      },
+    });
+    const response = await handleVercelRuntimeRequest(
+      new Request("https://app.example.test/api/admin/videos?first=10&status=READY"),
+      {
+        authenticateAdmin() {
+          return Promise.resolve({
+            session: {
+              shop: "test-shop.myshopify.com",
+            },
+          });
+        },
+        loadVideoUploadShop() {
+          return Promise.resolve({
+            id: "shop_1",
+            shopDomain: "test-shop.myshopify.com",
+          });
+        },
+        listVideos,
+      },
+    );
+    const body = (await response.json()) as {
+      videos: Array<{ id: string }>;
+    };
+    const serializedBody = JSON.stringify(body);
+
+    expect(response.status).toBe(200);
+    expect(body.videos[0]?.id).toBe("video_1");
+    expect(listVideos).toHaveBeenCalledWith(
+      {
+        id: "shop_1",
+        shopDomain: "test-shop.myshopify.com",
+      },
+      expect.any(URLSearchParams),
+    );
+    expect(serializedBody).not.toContain("storageKeyOriginal");
+    expect(serializedBody).not.toContain("accessToken");
+    expect(serializedBody).not.toContain("DATABASE_URL");
+  });
+
+  it("returns video detail and archives through the runtime adapter", async () => {
+    const getVideo = vi.fn().mockResolvedValue({
+      id: "video_1",
+      source: "MANUAL_UPLOAD",
+      status: "READY",
+      originalFilename: "demo.mp4",
+      contentType: "video/mp4",
+      sizeBytes: 4,
+      durationMs: 1234,
+      width: 1280,
+      height: 720,
+      createdAt: "2026-05-23T00:00:00.000Z",
+      updatedAt: "2026-05-23T00:00:00.000Z",
+    });
+    const archiveVideo = vi.fn().mockResolvedValue({
+      id: "video_1",
+      source: "MANUAL_UPLOAD",
+      status: "ARCHIVED",
+      originalFilename: "demo.mp4",
+      contentType: "video/mp4",
+      sizeBytes: 4,
+      durationMs: 1234,
+      width: 1280,
+      height: 720,
+      createdAt: "2026-05-23T00:00:00.000Z",
+      updatedAt: "2026-05-23T00:00:00.000Z",
+    });
+    const dependencies = {
+      authenticateAdmin() {
+        return Promise.resolve({
+          session: {
+            shop: "test-shop.myshopify.com",
+          },
+        });
+      },
+      loadVideoUploadShop() {
+        return Promise.resolve({
+          id: "shop_1",
+          shopDomain: "test-shop.myshopify.com",
+        });
+      },
+      getVideo,
+      archiveVideo,
+    };
+    const detailResponse = await handleVercelRuntimeRequest(
+      new Request("https://app.example.test/api/admin/videos/video_1"),
+      dependencies,
+    );
+    const archiveResponse = await handleVercelRuntimeRequest(
+      new Request("https://app.example.test/api/admin/videos/video_1/archive", {
+        method: "POST",
+      }),
+      dependencies,
+    );
+    const detailBody = (await detailResponse.json()) as {
+      video: {
+        status: string;
+      };
+    };
+    const archiveBody = (await archiveResponse.json()) as {
+      video: {
+        status: string;
+      };
+    };
+
+    expect(detailResponse.status).toBe(200);
+    expect(archiveResponse.status).toBe(200);
+    expect(detailBody.video.status).toBe("READY");
+    expect(archiveBody.video.status).toBe("ARCHIVED");
+    expect(getVideo).toHaveBeenCalledWith(
+      {
+        id: "shop_1",
+        shopDomain: "test-shop.myshopify.com",
+      },
+      "video_1",
+    );
+    expect(archiveVideo).toHaveBeenCalledWith(
+      {
+        id: "shop_1",
+        shopDomain: "test-shop.myshopify.com",
+      },
+      "video_1",
+    );
   });
 
   it("creates a manual video upload intent for an authenticated shop", async () => {
