@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { App } from "../app/App";
 import { ADMIN_SHELL_SAFE_ERROR_MESSAGE } from "../services/admin-shell";
+import type { AdminWidget } from "../services/admin-widgets";
 import { PRODUCT_SEARCH_SAFE_ERROR_MESSAGE } from "../services/product-search";
 import {
   VIDEO_LIBRARY_SAFE_ERROR_MESSAGE,
@@ -72,6 +73,16 @@ const readyVideoTag: VideoProductTag = {
   variantId: "gid://shopify/ProductVariant/1",
   variantTitle: "Small",
   createdAt: "2026-05-23T00:06:00.000Z",
+};
+
+const readyWidget: AdminWidget = {
+  id: "widget_1",
+  title: "Homepage videos",
+  status: "DRAFT",
+  layout: "INLINE_CAROUSEL",
+  createdAt: "2026-05-23T00:00:00.000Z",
+  updatedAt: "2026-05-23T00:10:00.000Z",
+  videos: [],
 };
 
 function renderApp(app: ReactElement, initialEntries = ["/"]) {
@@ -823,5 +834,154 @@ describe("admin app shell", () => {
       "aria-disabled",
       "true",
     );
+  });
+
+  it("renders the widgets page and creates a widget", async () => {
+    const loadWidgets = vi.fn().mockResolvedValue({ widgets: [] });
+    const createWidget = vi.fn().mockResolvedValue(readyWidget);
+
+    renderApp(
+      <App
+        initialDashboardState={readyDashboardState}
+        loadWidgets={loadWidgets}
+        createWidget={createWidget}
+        loadVideoLibrary={() => Promise.resolve(emptyVideoLibraryResult)}
+      />,
+      ["/widgets"],
+    );
+
+    expect(screen.getByRole("heading", { name: "Widgets" })).toBeInTheDocument();
+
+    await waitFor(() => {
+      expect(screen.getByText("No widgets yet")).toBeInTheDocument();
+    });
+
+    fireEvent.change(screen.getByLabelText("Widget title"), {
+      target: { value: "Homepage videos" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Create widget" }));
+
+    await waitFor(() => {
+      expect(createWidget).toHaveBeenCalledWith({ title: "Homepage videos" });
+    });
+    expect(screen.getByText("Homepage videos")).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain("shopify-id-token");
+    expect(document.body.textContent).not.toContain("SHOPIFY_API_SECRET");
+  });
+
+  it("renders widget details, embed snippet, and attaches or detaches videos", async () => {
+    const attachedWidget: AdminWidget = {
+      ...readyWidget,
+      videos: [readyVideo],
+    };
+    const loadWidgets = vi.fn().mockResolvedValue({ widgets: [readyWidget] });
+    const loadWidgetDetail = vi
+      .fn()
+      .mockResolvedValueOnce(readyWidget)
+      .mockResolvedValueOnce(readyWidget);
+    const updateWidget = vi.fn().mockResolvedValue({
+      ...readyWidget,
+      title: "Homepage carousel",
+      status: "PUBLISHED",
+    });
+    const attachWidgetVideo = vi.fn().mockResolvedValue(attachedWidget);
+    const detachWidgetVideo = vi.fn().mockResolvedValue({ detached: true });
+    const loadVideoLibrary = vi.fn().mockResolvedValue({
+      videos: [readyVideo],
+      pageInfo: {
+        hasNextPage: false,
+        endCursor: null,
+      },
+    });
+
+    vi.stubGlobal("confirm", vi.fn(() => true));
+
+    renderApp(
+      <App
+        initialDashboardState={readyDashboardState}
+        loadWidgets={loadWidgets}
+        loadWidgetDetail={loadWidgetDetail}
+        updateWidget={updateWidget}
+        attachWidgetVideo={attachWidgetVideo}
+        detachWidgetVideo={detachWidgetVideo}
+        loadVideoLibrary={loadVideoLibrary}
+      />,
+      ["/widgets"],
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Homepage videos")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "View details" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Widget details")).toBeInTheDocument();
+    });
+    expect(loadWidgetDetail).toHaveBeenCalledWith("widget_1");
+    expect(loadVideoLibrary).toHaveBeenCalledWith({
+      first: 50,
+      status: "READY",
+      source: "MANUAL_UPLOAD",
+    });
+    expect(screen.getByLabelText("Widget embed snippet").textContent).toContain(
+      "https://shopify-tool-git-main-rajat-sahadev-s-projects.vercel.app/widget.js",
+    );
+    expect(screen.getByLabelText("Widget embed snippet").textContent).toContain(
+      'data-shop="test-shop.myshopify.com"',
+    );
+
+    const widgetTitleInputs = screen.getAllByLabelText("Widget title");
+
+    fireEvent.change(widgetTitleInputs[1]!, {
+      target: { value: "Homepage carousel" },
+    });
+    fireEvent.change(screen.getByLabelText("Widget status"), {
+      target: { value: "PUBLISHED" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save widget" }));
+
+    await waitFor(() => {
+      expect(updateWidget).toHaveBeenCalledWith("widget_1", {
+        title: "Homepage carousel",
+        status: "PUBLISHED",
+      });
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Attach video" }));
+
+    await waitFor(() => {
+      expect(attachWidgetVideo).toHaveBeenCalledWith("widget_1", "video_1");
+    });
+    expect(screen.getByRole("button", { name: "Attached" })).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Detach" }));
+
+    await waitFor(() => {
+      expect(detachWidgetVideo).toHaveBeenCalledWith("widget_1", "video_1");
+    });
+    expect(document.body.textContent).not.toContain("DATABASE_URL");
+    expect(document.body.textContent).not.toContain("/tmp/shoppable-video-storage");
+  });
+
+  it("renders safe widget errors without exposing raw backend details", async () => {
+    renderApp(
+      <App
+        initialDashboardState={readyDashboardState}
+        loadWidgets={() => Promise.reject(new Error("raw widget backend failure"))}
+      />,
+      ["/widgets"],
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Widgets unavailable")).toBeInTheDocument();
+    });
+    expect(
+      screen.getByText("We could not update widgets. Reload the app from Shopify admin."),
+    ).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain("raw widget backend failure");
   });
 });

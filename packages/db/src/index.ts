@@ -48,6 +48,7 @@ export {
 } from "./repositories/video-product-tag-repository.js";
 export {
   WidgetRepository,
+  type AdminWidgetRecord,
   type StorefrontWidgetRecord,
   type WidgetLayout,
   type WidgetRecord,
