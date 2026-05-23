@@ -18,16 +18,16 @@
       "destination": "/api/health"
     },
     {
+      "source": "/widget.js",
+      "destination": "/api/widget"
+    },
+    {
       "source": "/api/admin/dashboard",
       "destination": "/api/admin-dashboard"
     },
     {
       "source": "/api/admin/products/search",
       "destination": "/api/admin-products-search"
-    },
-    {
-      "source": "/api/admin/videos/:path*",
-      "destination": "/api/admin-videos/:path*"
     }
   ]
 }
