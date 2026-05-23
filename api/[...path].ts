@@ -2,6 +2,14 @@ import { createHash } from "node:crypto";
 import type { IncomingHttpHeaders, IncomingMessage, ServerResponse } from "node:http";
 
 import {
+  archiveVideoLibraryItem,
+  getVideoLibraryDetail,
+  listVideoLibrary,
+  VideoLibraryExpectedError,
+  type SafeVideoLibraryDto,
+  type VideoLibraryListResponse,
+} from "./video-library.js";
+import {
   completeManualUpload,
   createManualUploadIntent,
   createStorageProviderFromEnv,
@@ -26,6 +34,7 @@ type VercelRuntimeRoute =
   | "auth"
   | "health"
   | "product-search"
+  | "video-library"
   | "video-upload"
   | "webhook"
   | "not-found";
@@ -91,6 +100,7 @@ type RuntimeDependencies = {
   authenticateWebhook?: (request: Request) => Promise<WebhookContext>;
   handleAdminDashboard?: (request: Request) => Promise<Response>;
   handleProductSearch?: (request: Request) => Promise<Response>;
+  handleVideoLibrary?: (request: Request) => Promise<Response>;
   handleVideoUpload?: (request: Request) => Promise<Response>;
   handleWebhook?: (request: Request) => Promise<Response>;
   loadDashboardShop?: (shopDomain: string) => Promise<DashboardShopRecord>;
@@ -114,6 +124,12 @@ type RuntimeDependencies = {
     shop: VideoUploadShop,
     videoId: string,
   ) => Promise<SafeVideoDto>;
+  listVideos?: (
+    shop: VideoUploadShop,
+    query: URLSearchParams,
+  ) => Promise<VideoLibraryListResponse>;
+  getVideo?: (shop: VideoUploadShop, videoId: string) => Promise<SafeVideoLibraryDto>;
+  archiveVideo?: (shop: VideoUploadShop, videoId: string) => Promise<SafeVideoLibraryDto>;
 };
 
 type DashboardDiagnosticError = Error & {
@@ -142,13 +158,20 @@ export function resolveVercelRuntimeRoute(pathname: string): VercelRuntimeRoute 
     return "product-search";
   }
 
+  const normalizedVideoPath = pathname.replace(/^\/api\/admin-videos/, "/api/admin/videos");
+
   if (
-    pathname === "/api/admin/videos/upload-intent" ||
-    pathname.startsWith("/api/admin/videos/") ||
-    pathname === "/api/admin-videos/upload-intent" ||
-    pathname.startsWith("/api/admin-videos/")
+    normalizedVideoPath === "/api/admin/videos/upload-intent" ||
+    /^\/api\/admin\/videos\/[^/]+\/(upload|complete-upload)$/.test(normalizedVideoPath)
   ) {
     return "video-upload";
+  }
+
+  if (
+    normalizedVideoPath === "/api/admin/videos" ||
+    /^\/api\/admin\/videos\/[^/]+(\/archive|\/restore)?$/.test(normalizedVideoPath)
+  ) {
+    return "video-library";
   }
 
   if (pathname === "/api/webhooks" || pathname === "/webhooks") {
@@ -197,6 +220,10 @@ export async function handleVercelRuntimeRequest(
 
   if (route === "product-search") {
     return handleProductSearchRequest(request, dependencies);
+  }
+
+  if (route === "video-library") {
+    return handleVideoLibraryRequest(request, dependencies);
   }
 
   if (route === "video-upload") {
@@ -450,6 +477,211 @@ function logProductSearchError(error: unknown): void {
 function productSearchFailureResponse(
   status: number,
   message = "We could not search Shopify products. Reload the app from Shopify admin.",
+): Response {
+  return Response.json(
+    {
+      message,
+    },
+    {
+      status,
+      headers: {
+        "Cache-Control": "no-store",
+      },
+    },
+  );
+}
+
+async function handleVideoLibraryRequest(
+  request: Request,
+  {
+    authenticateAdmin,
+    archiveVideo,
+    getVideo,
+    handleVideoLibrary,
+    listVideos,
+    loadVideoUploadShop,
+  }: RuntimeDependencies,
+): Promise<Response> {
+  if (handleVideoLibrary) {
+    return handleVideoLibrary(request);
+  }
+
+  if (!authenticateAdmin && !hasBearerAuthorization(request)) {
+    return videoLibraryFailureResponse(410);
+  }
+
+  let authenticated = false;
+
+  try {
+    const authResult = await authenticateDashboardRequest(request, authenticateAdmin);
+    authenticated = true;
+    const shop = loadVideoUploadShop
+      ? await loadVideoUploadShop(authResult.session.shop)
+      : await loadVideoUploadShopFromDatabase(authResult.session.shop);
+    const action = parseVideoLibraryAction(request);
+
+    if (action.kind === "list") {
+      if (request.method !== "GET") {
+        return videoLibraryFailureResponse(405, "Video library listing only supports GET requests.");
+      }
+
+      const result = listVideos
+        ? await listVideos(shop, new URL(request.url).searchParams)
+        : await listVideosWithDatabase(shop, new URL(request.url).searchParams);
+
+      return Response.json(result, {
+        headers: {
+          "Cache-Control": "no-store",
+        },
+      });
+    }
+
+    if (action.kind === "detail") {
+      if (request.method !== "GET") {
+        return videoLibraryFailureResponse(405, "Video detail only supports GET requests.");
+      }
+
+      const video = getVideo
+        ? await getVideo(shop, action.videoId)
+        : await getVideoWithDatabase(shop, action.videoId);
+
+      return Response.json(
+        {
+          video,
+        },
+        {
+          headers: {
+            "Cache-Control": "no-store",
+          },
+        },
+      );
+    }
+
+    if (request.method !== "POST") {
+      return videoLibraryFailureResponse(405, "Video archive only supports POST requests.");
+    }
+
+    const video = archiveVideo
+      ? await archiveVideo(shop, action.videoId)
+      : await archiveVideoWithDatabase(shop, action.videoId);
+
+    return Response.json(
+      {
+        video,
+      },
+      {
+        headers: {
+          "Cache-Control": "no-store",
+        },
+      },
+    );
+  } catch (error) {
+    if (error instanceof Response) {
+      return error;
+    }
+
+    if (error instanceof VideoLibraryExpectedError) {
+      logVideoLibraryError(error);
+      return videoLibraryFailureResponse(error.status, error.clientMessage);
+    }
+
+    const status = authenticated ? 500 : 410;
+
+    if (authenticated) {
+      logVideoLibraryError(error);
+    }
+
+    return videoLibraryFailureResponse(status >= 400 && status < 500 ? status : 500);
+  }
+}
+
+type VideoLibraryAction =
+  | { kind: "list" }
+  | { kind: "detail"; videoId: string }
+  | { kind: "archive"; videoId: string };
+
+function parseVideoLibraryAction(request: Request): VideoLibraryAction {
+  const pathname = new URL(request.url).pathname.replace(/^\/api\/admin-videos/, "/api/admin/videos");
+
+  if (pathname === "/api/admin/videos") {
+    return { kind: "list" };
+  }
+
+  const match = pathname.match(/^\/api\/admin\/videos\/([^/]+)(?:\/(archive|restore))?$/);
+
+  if (!match?.[1]) {
+    throw new VideoLibraryExpectedError("Video library route was not found", 404);
+  }
+
+  if (match[2] === "restore") {
+    throw new VideoLibraryExpectedError("Video restore is not supported yet", 404);
+  }
+
+  return match[2] === "archive"
+    ? { kind: "archive", videoId: decodeURIComponent(match[1]) }
+    : { kind: "detail", videoId: decodeURIComponent(match[1]) };
+}
+
+async function listVideosWithDatabase(
+  shop: VideoUploadShop,
+  query: URLSearchParams,
+): Promise<VideoLibraryListResponse> {
+  const { getPrismaClient, VideoRepository } = await import("@shoppable-video/db");
+  const videoRepository = new VideoRepository(getPrismaClient());
+
+  return listVideoLibrary({
+    shop,
+    query: {
+      first: query.get("first"),
+      after: query.get("after"),
+      status: query.get("status"),
+      source: query.get("source"),
+      q: query.get("q"),
+    },
+    videoRepository,
+  });
+}
+
+async function getVideoWithDatabase(
+  shop: VideoUploadShop,
+  videoId: string,
+): Promise<SafeVideoLibraryDto> {
+  const { getPrismaClient, VideoRepository } = await import("@shoppable-video/db");
+  const videoRepository = new VideoRepository(getPrismaClient());
+
+  return getVideoLibraryDetail({
+    shop,
+    videoId,
+    videoRepository,
+  });
+}
+
+async function archiveVideoWithDatabase(
+  shop: VideoUploadShop,
+  videoId: string,
+): Promise<SafeVideoLibraryDto> {
+  const { getPrismaClient, VideoRepository } = await import("@shoppable-video/db");
+  const videoRepository = new VideoRepository(getPrismaClient());
+
+  return archiveVideoLibraryItem({
+    shop,
+    videoId,
+    videoRepository,
+  });
+}
+
+function logVideoLibraryError(error: unknown): void {
+  const reason = error instanceof Error ? error.name : "UnknownVideoLibraryError";
+
+  console.error("Failed to handle video library request", {
+    operation: "videos.library",
+    reason,
+  });
+}
+
+function videoLibraryFailureResponse(
+  status: number,
+  message = "We could not load the video library. Reload the app from Shopify admin.",
 ): Response {
   return Response.json(
     {

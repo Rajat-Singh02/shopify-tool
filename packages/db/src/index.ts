@@ -33,8 +33,12 @@ export {
 export {
   VideoRepository,
   type CreateManualUploadVideoInput,
+  type ListVideosInput,
+  type ListVideosResult,
   type VideoRecord,
   type VideoRepositoryClient,
+  type VideoSource,
+  type VideoStatus,
 } from "./repositories/video-repository.js";
 export {
   PrismaShopifySessionStorage,
