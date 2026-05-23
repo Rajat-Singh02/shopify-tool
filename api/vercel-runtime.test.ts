@@ -24,6 +24,10 @@ describe("Vercel runtime route surface", () => {
     ["/api/admin-dashboard", "admin-dashboard"],
     ["/api/admin/products/search", "product-search"],
     ["/api/admin-products-search", "product-search"],
+    ["/api/admin/videos/upload-intent", "video-upload"],
+    ["/api/admin/videos/video_1/upload", "video-upload"],
+    ["/api/admin/videos/video_1/complete-upload", "video-upload"],
+    ["/api/admin-videos/upload-intent", "video-upload"],
     ["/api/webhooks", "webhook"],
     ["/webhooks", "webhook"],
     ["/api/auth/callback", "auth"],
@@ -246,6 +250,210 @@ describe("Vercel runtime route surface", () => {
     expect(response.status).toBe(410);
     expect(serializedBody).not.toContain("accessToken");
     expect(serializedBody).not.toContain("session");
+  });
+
+  it("returns a safe video upload response when no bearer token is present", async () => {
+    const response = await handleVercelRuntimeRequest(
+      new Request("https://app.example.test/api/admin/videos/upload-intent", {
+        method: "POST",
+        body: JSON.stringify({
+          filename: "demo.mp4",
+          contentType: "video/mp4",
+          sizeBytes: 4,
+        }),
+      }),
+    );
+    const body = (await response.json()) as {
+      message: string;
+    };
+
+    expect(response.status).toBe(410);
+    expect(body.message).toBe(
+      "We could not handle the video upload request. Reload the app from Shopify admin.",
+    );
+  });
+
+  it("returns a safe video upload response when Shopify token authentication fails", async () => {
+    const response = await handleVercelRuntimeRequest(
+      new Request("https://app.example.test/api/admin/videos/upload-intent", {
+        method: "POST",
+        headers: {
+          Authorization: "Bearer invalid-video-token",
+        },
+        body: JSON.stringify({
+          filename: "demo.mp4",
+          contentType: "video/mp4",
+          sizeBytes: 4,
+        }),
+      }),
+      {
+        authenticateAdmin() {
+          throw new Error("raw video token validation failure");
+        },
+      },
+    );
+    const serializedBody = JSON.stringify(await response.json());
+
+    expect(response.status).toBe(410);
+    expect(serializedBody).not.toContain("raw video token validation failure");
+    expect(serializedBody).not.toContain("invalid-video-token");
+  });
+
+  it("creates a manual video upload intent for an authenticated shop", async () => {
+    const createUploadIntent = vi.fn().mockResolvedValue({
+      video: {
+        id: "video_1",
+        status: "UPLOADED",
+        source: "MANUAL_UPLOAD",
+        originalFilename: "demo.mp4",
+        contentType: "video/mp4",
+        sizeBytes: 4,
+      },
+      upload: {
+        method: "PUT",
+        url: "/api/admin/videos/video_1/upload",
+        headers: {
+          "Content-Type": "video/mp4",
+        },
+        expiresAt: "2026-05-23T00:15:00.000Z",
+      },
+    });
+    const response = await handleVercelRuntimeRequest(
+      new Request("https://app.example.test/api/admin/videos/upload-intent", {
+        method: "POST",
+        body: JSON.stringify({
+          filename: "demo.mp4",
+          contentType: "video/mp4",
+          sizeBytes: 4,
+        }),
+      }),
+      {
+        authenticateAdmin() {
+          return Promise.resolve({
+            session: {
+              shop: "test-shop.myshopify.com",
+            },
+          });
+        },
+        loadVideoUploadShop(shopDomain) {
+          return Promise.resolve({
+            id: "shop_1",
+            shopDomain,
+          });
+        },
+        createUploadIntent,
+      },
+    );
+    const body = (await response.json()) as {
+      video: {
+        id: string;
+      };
+    };
+    const serializedBody = JSON.stringify(body);
+
+    expect(response.status).toBe(201);
+    expect(body.video.id).toBe("video_1");
+    expect(createUploadIntent).toHaveBeenCalledWith(
+      {
+        id: "shop_1",
+        shopDomain: "test-shop.myshopify.com",
+      },
+      {
+        filename: "demo.mp4",
+        contentType: "video/mp4",
+        sizeBytes: 4,
+      },
+    );
+    expect(serializedBody).not.toContain("storageKeyOriginal");
+    expect(serializedBody).not.toContain("accessToken");
+    expect(serializedBody).not.toContain("DATABASE_URL");
+  });
+
+  it("writes a local upload only for the authenticated owning shop", async () => {
+    const writeUploadObject = vi.fn().mockResolvedValue({
+      id: "video_1",
+      status: "UPLOADED",
+      source: "MANUAL_UPLOAD",
+      originalFilename: "demo.mp4",
+      contentType: "video/mp4",
+      sizeBytes: 4,
+    });
+    const response = await handleVercelRuntimeRequest(
+      new Request("https://app.example.test/api/admin/videos/video_1/upload", {
+        method: "PUT",
+        headers: {
+          "Content-Type": "video/mp4",
+        },
+        body: new Uint8Array([1, 2, 3, 4]),
+      }),
+      {
+        authenticateAdmin() {
+          return Promise.resolve({
+            session: {
+              shop: "test-shop.myshopify.com",
+            },
+          });
+        },
+        loadVideoUploadShop() {
+          return Promise.resolve({
+            id: "shop_1",
+            shopDomain: "test-shop.myshopify.com",
+          });
+        },
+        writeUploadObject,
+      },
+    );
+
+    expect(response.status).toBe(200);
+    expect(writeUploadObject).toHaveBeenCalledWith(
+      {
+        id: "shop_1",
+        shopDomain: "test-shop.myshopify.com",
+      },
+      "video_1",
+      expect.any(Request),
+    );
+  });
+
+  it("completes a manual upload through the runtime adapter", async () => {
+    const completeUpload = vi.fn().mockResolvedValue({
+      id: "video_1",
+      status: "UPLOADED",
+      source: "MANUAL_UPLOAD",
+      originalFilename: "demo.mp4",
+      contentType: "video/mp4",
+      sizeBytes: 4,
+    });
+    const response = await handleVercelRuntimeRequest(
+      new Request("https://app.example.test/api/admin/videos/video_1/complete-upload", {
+        method: "POST",
+      }),
+      {
+        authenticateAdmin() {
+          return Promise.resolve({
+            session: {
+              shop: "test-shop.myshopify.com",
+            },
+          });
+        },
+        loadVideoUploadShop() {
+          return Promise.resolve({
+            id: "shop_1",
+            shopDomain: "test-shop.myshopify.com",
+          });
+        },
+        completeUpload,
+      },
+    );
+
+    expect(response.status).toBe(200);
+    expect(completeUpload).toHaveBeenCalledWith(
+      {
+        id: "shop_1",
+        shopDomain: "test-shop.myshopify.com",
+      },
+      "video_1",
+    );
   });
 
   it("converts Shopify Admin API failures into safe product search JSON", async () => {
@@ -495,6 +703,24 @@ describe("Vercel runtime route surface", () => {
         {
           source: "/api/admin/products/search",
           destination: "/api/admin-products-search",
+        },
+      ]),
+    );
+  });
+
+  it("keeps the manual video upload paths on the Vercel server route surface", async () => {
+    const vercelConfig = JSON.parse(await readFile("vercel.json", "utf8")) as {
+      rewrites?: Array<{
+        source: string;
+        destination: string;
+      }>;
+    };
+
+    expect(vercelConfig.rewrites).toEqual(
+      expect.arrayContaining([
+        {
+          source: "/api/admin/videos/:path*",
+          destination: "/api/admin-videos/:path*",
         },
       ]),
     );
