@@ -8,7 +8,7 @@ import {
   listVideoProductTags,
   toSafeVideoProductTagDto,
   VideoProductTagExpectedError,
-} from "./video-product-tags";
+} from "../../api/video-product-tags";
 
 const shop = {
   id: "shop_1",

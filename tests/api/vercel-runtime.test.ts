@@ -7,9 +7,9 @@ import {
   createDashboardShopContextDiagnostic,
   handleVercelRuntimeRequest,
   resolveVercelRuntimeRoute,
-} from "./[...path]";
-import { StorefrontAnalyticsExpectedError } from "./storefront-analytics";
-import { StorefrontWidgetExpectedError } from "./storefront-widget";
+} from "../../api/[...path]";
+import { StorefrontAnalyticsExpectedError } from "../../api/storefront-analytics";
+import { StorefrontWidgetExpectedError } from "../../api/storefront-widget";
 
 describe("Vercel runtime route surface", () => {
   afterEach(() => {

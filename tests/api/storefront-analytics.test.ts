@@ -6,7 +6,7 @@ import {
   ingestStorefrontAnalyticsEvent,
   parseStorefrontAnalyticsEvent,
   StorefrontAnalyticsExpectedError,
-} from "./storefront-analytics";
+} from "../../api/storefront-analytics";
 
 const now = new Date("2026-05-23T00:00:00.000Z");
 

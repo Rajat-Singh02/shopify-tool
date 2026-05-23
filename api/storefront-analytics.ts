@@ -250,7 +250,6 @@ function sanitizeMetadata(value: unknown): Record<string, AnalyticsMetadataValue
   }
 
   const safeMetadata: Record<string, AnalyticsMetadataValue> = {};
-
   const metadataRecord = value as Record<string, unknown>;
 
   for (const [key, metadataValue] of Object.entries(metadataRecord).slice(0, MAX_METADATA_KEYS)) {
@@ -258,19 +257,35 @@ function sanitizeMetadata(value: unknown): Record<string, AnalyticsMetadataValue
       continue;
     }
 
-    if (
-      metadataValue === null ||
-      typeof metadataValue === "boolean" ||
-      typeof metadataValue === "number"
-    ) {
-      safeMetadata[key] = metadataValue;
-      continue;
-    }
-
-    if (typeof metadataValue === "string") {
-      safeMetadata[key] = metadataValue.slice(0, MAX_METADATA_STRING_LENGTH);
+    const safeValue = toSafeMetadataValue(metadataValue);
+    if (safeValue !== undefined) {
+      safeMetadata[key] = safeValue;
     }
   }
 
   return safeMetadata;
+}
+
+function toSafeMetadataValue(value: unknown): AnalyticsMetadataValue | undefined {
+  if (value === null) {
+    return null;
+  }
+
+  if (typeof value === "boolean") {
+    return value;
+  }
+
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) {
+      return undefined;
+    }
+
+    return value;
+  }
+
+  if (typeof value === "string") {
+    return value.slice(0, MAX_METADATA_STRING_LENGTH);
+  }
+
+  return undefined;
 }

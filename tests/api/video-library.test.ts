@@ -8,7 +8,7 @@ import {
   listVideoLibrary,
   toSafeVideoLibraryDto,
   VideoLibraryExpectedError,
-} from "./video-library";
+} from "../../api/video-library";
 
 function createVideo(overrides: Partial<VideoRecord> = {}): VideoRecord {
   const now = new Date("2026-05-23T00:00:00.000Z");

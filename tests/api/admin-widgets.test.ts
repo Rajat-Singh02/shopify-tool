@@ -11,7 +11,7 @@ import {
   listAdminWidgets,
   toSafeAdminWidgetDto,
   updateAdminWidget,
-} from "./admin-widgets";
+} from "../../api/admin-widgets";
 
 const shop = {
   id: "shop_1",
