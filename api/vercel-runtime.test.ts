@@ -24,6 +24,8 @@ describe("Vercel runtime route surface", () => {
   it.each([
     ["/api/admin/dashboard", "admin-dashboard"],
     ["/api/admin-dashboard", "admin-dashboard"],
+    ["/api/admin/analytics/summary", "admin-analytics"],
+    ["/api/admin/analytics/events", "admin-analytics"],
     ["/api/admin/products/search", "product-search"],
     ["/api/admin-products-search", "product-search"],
     ["/api/admin/widgets", "admin-widget"],
@@ -145,6 +147,135 @@ describe("Vercel runtime route surface", () => {
     expect(body.message).toBe(
       "We could not search Shopify products. Reload the app from Shopify admin.",
     );
+  });
+
+  it("returns a safe admin analytics response when no bearer token is present", async () => {
+    const response = await handleVercelRuntimeRequest(
+      new Request("https://app.example.test/api/admin/analytics/summary"),
+    );
+    const body = (await response.json()) as {
+      message: string;
+    };
+
+    expect(response.status).toBe(410);
+    expect(body.message).toBe("We could not load analytics. Reload the app from Shopify admin.");
+  });
+
+  it("returns admin analytics summary for a valid authenticated context", async () => {
+    const getAdminAnalyticsSummary = vi.fn().mockResolvedValue({
+      range: {
+        from: "2026-04-23T00:00:00.000Z",
+        to: "2026-05-23T00:00:00.000Z",
+      },
+      totals: {
+        events: 1,
+        widgetViews: 1,
+        videoImpressions: 0,
+        videoPlays: 0,
+        videoPauses: 0,
+        productClicks: 0,
+      },
+      byEventType: [
+        {
+          eventType: "WIDGET_VIEW",
+          count: 1,
+        },
+      ],
+      byWidget: [],
+      byVideo: [],
+    });
+    const response = await handleVercelRuntimeRequest(
+      new Request("https://app.example.test/api/admin/analytics/summary?widgetId=widget_1", {
+        headers: {
+          Authorization: "Bearer valid-token",
+        },
+      }),
+      {
+        authenticateAdmin() {
+          return Promise.resolve({
+            session: {
+              shop: "test-shop.myshopify.com",
+            },
+          });
+        },
+        loadVideoUploadShop(shopDomain) {
+          expect(shopDomain).toBe("test-shop.myshopify.com");
+          return Promise.resolve({
+            id: "shop_1",
+            shopDomain,
+          });
+        },
+        getAdminAnalyticsSummary,
+      },
+    );
+    const body = (await response.json()) as {
+      totals: {
+        events: number;
+      };
+    };
+
+    expect(response.status).toBe(200);
+    expect(body.totals.events).toBe(1);
+    expect(getAdminAnalyticsSummary).toHaveBeenCalledWith(
+      {
+        id: "shop_1",
+        shopDomain: "test-shop.myshopify.com",
+      },
+      expect.any(URLSearchParams),
+    );
+    expect(JSON.stringify(body)).not.toContain("valid-token");
+    expect(JSON.stringify(body)).not.toContain("DATABASE_URL");
+  });
+
+  it("returns admin analytics events for a valid authenticated context", async () => {
+    const listAdminAnalyticsEvents = vi.fn().mockResolvedValue({
+      events: [
+        {
+          id: "event_1",
+          eventType: "PRODUCT_CLICK",
+          widgetId: "widget_1",
+          videoId: "video_1",
+          productId: "gid://shopify/Product/1",
+          variantId: "gid://shopify/ProductVariant/1",
+          createdAt: "2026-05-23T00:00:00.000Z",
+        },
+      ],
+      pageInfo: {
+        hasNextPage: false,
+        endCursor: "event_1",
+      },
+    });
+    const response = await handleVercelRuntimeRequest(
+      new Request("https://app.example.test/api/admin/analytics/events?eventType=PRODUCT_CLICK", {
+        headers: {
+          Authorization: "Bearer valid-token",
+        },
+      }),
+      {
+        authenticateAdmin() {
+          return Promise.resolve({
+            session: {
+              shop: "test-shop.myshopify.com",
+            },
+          });
+        },
+        loadVideoUploadShop() {
+          return Promise.resolve({
+            id: "shop_1",
+            shopDomain: "test-shop.myshopify.com",
+          });
+        },
+        listAdminAnalyticsEvents,
+      },
+    );
+    const body = (await response.json()) as {
+      events: Array<{ eventType: string }>;
+    };
+
+    expect(response.status).toBe(200);
+    expect(body.events[0]?.eventType).toBe("PRODUCT_CLICK");
+    expect(JSON.stringify(body)).not.toContain("metadataJson");
+    expect(JSON.stringify(body)).not.toContain("Cookie");
   });
 
   it("returns a safe product search response when Shopify token authentication fails", async () => {

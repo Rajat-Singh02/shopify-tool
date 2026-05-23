@@ -64,9 +64,38 @@ The database enum currently uses older event names. Feature 8A stores compatible
 
 The script uses `navigator.sendBeacon` when available and falls back to `fetch` with `keepalive`. Analytics failures are ignored so storefront rendering is not blocked.
 
+## Admin Routes
+
+Feature 8B adds authenticated admin reporting endpoints. These routes use the embedded Shopify admin bearer-token flow and only return events for the current shop.
+
+`GET /api/admin/analytics/summary`
+
+Query params:
+
+- `from`: optional ISO date.
+- `to`: optional ISO date.
+- `widgetId`: optional current-shop widget filter.
+- `videoId`: optional current-shop video filter.
+
+Response includes a bounded date range, total event counts, counts by storefront event type, counts by widget, and counts by video.
+
+`GET /api/admin/analytics/events`
+
+Query params:
+
+- `first`: optional page size, default 20, max 50.
+- `after`: optional event cursor.
+- `from`: optional ISO date.
+- `to`: optional ISO date.
+- `eventType`: optional storefront event type.
+- `widgetId`: optional current-shop widget filter.
+- `videoId`: optional current-shop video filter.
+
+Response includes safe event DTOs with event id, event type, widget id, video id, product id, variant id, and timestamp. Raw metadata is intentionally not returned.
+
 ## Current Limitations
 
-- No admin analytics dashboard yet.
+- No admin analytics dashboard UI yet.
 - No charts yet.
 - No attribution.
 - No external analytics providers.

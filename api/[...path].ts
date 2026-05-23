@@ -2,6 +2,13 @@ import { createHash } from "node:crypto";
 import type { IncomingHttpHeaders, IncomingMessage, ServerResponse } from "node:http";
 
 import {
+  getAdminAnalyticsSummary,
+  listAdminAnalyticsEvents,
+  AdminAnalyticsExpectedError,
+  type AdminAnalyticsEventsResponse,
+  type AdminAnalyticsSummaryResponse,
+} from "./admin-analytics.js";
+import {
   attachAdminWidgetVideo,
   createAdminWidget,
   detachAdminWidgetVideo,
@@ -60,6 +67,7 @@ export const config = {
 };
 
 type VercelRuntimeRoute =
+  | "admin-analytics"
   | "admin-dashboard"
   | "admin-widget"
   | "auth"
@@ -133,6 +141,7 @@ type RuntimeDependencies = {
   authenticateAdmin?: (request: Request) => Promise<AdminAuthResult>;
   authenticateWebhook?: (request: Request) => Promise<WebhookContext>;
   handleAdminDashboard?: (request: Request) => Promise<Response>;
+  handleAdminAnalytics?: (request: Request) => Promise<Response>;
   handleAdminWidget?: (request: Request) => Promise<Response>;
   handleProductSearch?: (request: Request) => Promise<Response>;
   handleStorefrontEvent?: (request: Request) => Promise<Response>;
@@ -153,6 +162,14 @@ type RuntimeDependencies = {
     widgetId: string,
   ) => Promise<PublicStorefrontWidgetPayload>;
   recordStorefrontEvent?: (input: unknown) => Promise<StorefrontAnalyticsResponse>;
+  getAdminAnalyticsSummary?: (
+    shop: VideoUploadShop,
+    query: URLSearchParams,
+  ) => Promise<AdminAnalyticsSummaryResponse>;
+  listAdminAnalyticsEvents?: (
+    shop: VideoUploadShop,
+    query: URLSearchParams,
+  ) => Promise<AdminAnalyticsEventsResponse>;
   listAdminWidgets?: (shop: VideoUploadShop) => Promise<AdminWidgetListResponse>;
   createAdminWidget?: (shop: VideoUploadShop, input: unknown) => Promise<SafeAdminWidgetDto>;
   getAdminWidget?: (shop: VideoUploadShop, widgetId: string) => Promise<SafeAdminWidgetDto>;
@@ -222,6 +239,10 @@ export default async function handler(
 }
 
 export function resolveVercelRuntimeRoute(pathname: string): VercelRuntimeRoute {
+  if (pathname === "/api/admin/analytics/summary" || pathname === "/api/admin/analytics/events") {
+    return "admin-analytics";
+  }
+
   if (pathname === "/api/storefront/events") {
     return "storefront-event";
   }
@@ -312,6 +333,10 @@ export async function handleVercelRuntimeRequest(
 
   if (route === "admin-dashboard") {
     return handleAdminDashboardRequest(request, dependencies);
+  }
+
+  if (route === "admin-analytics") {
+    return handleAdminAnalyticsRequest(request, dependencies);
   }
 
   if (route === "admin-widget") {
@@ -589,6 +614,151 @@ function logProductSearchError(error: unknown): void {
 function productSearchFailureResponse(
   status: number,
   message = "We could not search Shopify products. Reload the app from Shopify admin.",
+): Response {
+  return Response.json(
+    {
+      message,
+    },
+    {
+      status,
+      headers: {
+        "Cache-Control": "no-store",
+      },
+    },
+  );
+}
+
+async function handleAdminAnalyticsRequest(
+  request: Request,
+  {
+    authenticateAdmin,
+    getAdminAnalyticsSummary: getSummary,
+    handleAdminAnalytics,
+    listAdminAnalyticsEvents: listEvents,
+    loadVideoUploadShop,
+  }: RuntimeDependencies,
+): Promise<Response> {
+  if (handleAdminAnalytics) {
+    return handleAdminAnalytics(request);
+  }
+
+  if (request.method !== "GET" && request.method !== "HEAD") {
+    return adminAnalyticsFailureResponse(405, "Analytics endpoints only support GET requests.");
+  }
+
+  if (!authenticateAdmin && !hasBearerAuthorization(request)) {
+    return adminAnalyticsFailureResponse(410);
+  }
+
+  let authenticated = false;
+
+  try {
+    const authResult = await authenticateDashboardRequest(request, authenticateAdmin);
+    authenticated = true;
+    const shop = loadVideoUploadShop
+      ? await loadVideoUploadShop(authResult.session.shop)
+      : await loadVideoUploadShopFromDatabase(authResult.session.shop);
+    const url = new URL(request.url);
+
+    if (url.pathname === "/api/admin/analytics/summary") {
+      const result = getSummary
+        ? await getSummary(shop, url.searchParams)
+        : await getAdminAnalyticsSummaryWithDatabase(shop, url.searchParams);
+
+      return Response.json(result, {
+        headers: {
+          "Cache-Control": "no-store",
+        },
+      });
+    }
+
+    const result = listEvents
+      ? await listEvents(shop, url.searchParams)
+      : await listAdminAnalyticsEventsWithDatabase(shop, url.searchParams);
+
+    return Response.json(result, {
+      headers: {
+        "Cache-Control": "no-store",
+      },
+    });
+  } catch (error) {
+    if (error instanceof Response) {
+      return error;
+    }
+
+    if (error instanceof AdminAnalyticsExpectedError) {
+      logAdminAnalyticsError(error);
+      return adminAnalyticsFailureResponse(error.status, error.clientMessage);
+    }
+
+    const status = authenticated ? 500 : 410;
+
+    if (authenticated) {
+      logAdminAnalyticsError(error);
+    }
+
+    return adminAnalyticsFailureResponse(status >= 400 && status < 500 ? status : 500);
+  }
+}
+
+async function getAdminAnalyticsSummaryWithDatabase(
+  shop: VideoUploadShop,
+  query: URLSearchParams,
+): Promise<AdminAnalyticsSummaryResponse> {
+  const { AnalyticsEventRepository, VideoRepository, WidgetRepository, getPrismaClient } =
+    await import("@shoppable-video/db");
+  const prismaClient = getPrismaClient();
+
+  return getAdminAnalyticsSummary({
+    shop,
+    query: toAdminAnalyticsQuery(query),
+    analyticsEventRepository: new AnalyticsEventRepository(prismaClient),
+    widgetRepository: new WidgetRepository(prismaClient),
+    videoRepository: new VideoRepository(prismaClient),
+  });
+}
+
+async function listAdminAnalyticsEventsWithDatabase(
+  shop: VideoUploadShop,
+  query: URLSearchParams,
+): Promise<AdminAnalyticsEventsResponse> {
+  const { AnalyticsEventRepository, VideoRepository, WidgetRepository, getPrismaClient } =
+    await import("@shoppable-video/db");
+  const prismaClient = getPrismaClient();
+
+  return listAdminAnalyticsEvents({
+    shop,
+    query: toAdminAnalyticsQuery(query),
+    analyticsEventRepository: new AnalyticsEventRepository(prismaClient),
+    widgetRepository: new WidgetRepository(prismaClient),
+    videoRepository: new VideoRepository(prismaClient),
+  });
+}
+
+function toAdminAnalyticsQuery(query: URLSearchParams) {
+  return {
+    first: query.get("first"),
+    after: query.get("after"),
+    from: query.get("from"),
+    to: query.get("to"),
+    eventType: query.get("eventType"),
+    widgetId: query.get("widgetId"),
+    videoId: query.get("videoId"),
+  };
+}
+
+function logAdminAnalyticsError(error: unknown): void {
+  const reason = error instanceof Error ? error.name : "UnknownAdminAnalyticsError";
+
+  console.error("Failed to handle admin analytics request", {
+    operation: "analytics.admin",
+    reason,
+  });
+}
+
+function adminAnalyticsFailureResponse(
+  status: number,
+  message = "We could not load analytics. Reload the app from Shopify admin.",
 ): Response {
   return Response.json(
     {
