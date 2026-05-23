@@ -1592,13 +1592,60 @@ describe("Vercel runtime route surface", () => {
       }>;
     };
 
+    expect(
+      vercelConfig.rewrites?.some((rewrite) =>
+        rewrite.destination.includes("/api/admin-videos"),
+      ),
+    ).toBe(false);
+
+    await expect(readFile("api/admin/videos/index.ts", "utf8")).resolves.toContain(
+      "../../[...path].js",
+    );
+    await expect(readFile("api/admin/videos/[videoId]/upload.ts", "utf8")).resolves.toContain(
+      "../../../[...path].js",
+    );
+    await expect(
+      readFile("api/admin/videos/[videoId]/complete-upload.ts", "utf8"),
+    ).resolves.toContain("../../../[...path].js");
+  });
+
+  it("keeps the admin widgets and analytics paths on concrete Vercel API functions", async () => {
+    await expect(readFile("api/admin/widgets/index.ts", "utf8")).resolves.toContain(
+      "../../[...path].js",
+    );
+    await expect(readFile("api/admin/widgets/[widgetId]/index.ts", "utf8")).resolves.toContain(
+      "../../../[...path].js",
+    );
+    await expect(readFile("api/admin/analytics/summary.ts", "utf8")).resolves.toContain(
+      "../../[...path].js",
+    );
+    await expect(readFile("api/admin/analytics/events.ts", "utf8")).resolves.toContain(
+      "../../[...path].js",
+    );
+  });
+
+  it("keeps storefront public paths reachable on Vercel", async () => {
+    const vercelConfig = JSON.parse(await readFile("vercel.json", "utf8")) as {
+      rewrites?: Array<{
+        source: string;
+        destination: string;
+      }>;
+    };
+
     expect(vercelConfig.rewrites).toEqual(
       expect.arrayContaining([
         {
-          source: "/api/admin/videos/:path*",
-          destination: "/api/admin-videos/:path*",
+          source: "/widget.js",
+          destination: "/api/widget",
         },
       ]),
+    );
+    await expect(readFile("api/widget.ts", "utf8")).resolves.toContain("./[...path].js");
+    await expect(readFile("api/storefront/events.ts", "utf8")).resolves.toContain(
+      "../[...path].js",
+    );
+    await expect(readFile("api/storefront/widgets/[widgetId].ts", "utf8")).resolves.toContain(
+      "../../[...path].js",
     );
   });
 

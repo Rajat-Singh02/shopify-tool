@@ -279,7 +279,11 @@ export function resolveVercelRuntimeRoute(pathname: string): VercelRuntimeRoute 
     return "storefront-event";
   }
 
-  if (pathname === "/widget.js" || /^\/api\/storefront\/widgets\/[^/]+$/.test(pathname)) {
+  if (
+    pathname === "/widget.js" ||
+    pathname === "/api/widget" ||
+    /^\/api\/storefront\/widgets\/[^/]+$/.test(pathname)
+  ) {
     return "storefront-widget";
   }
 
