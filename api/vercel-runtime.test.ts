@@ -22,6 +22,8 @@ describe("Vercel runtime route surface", () => {
   it.each([
     ["/api/admin/dashboard", "admin-dashboard"],
     ["/api/admin-dashboard", "admin-dashboard"],
+    ["/api/admin/products/search", "product-search"],
+    ["/api/admin-products-search", "product-search"],
     ["/api/webhooks", "webhook"],
     ["/webhooks", "webhook"],
     ["/api/auth/callback", "auth"],
@@ -111,6 +113,187 @@ describe("Vercel runtime route surface", () => {
     expect(response.status).toBe(410);
     expect(serializedBody).not.toContain("raw token validation failure");
     expect(serializedBody).not.toContain("invalid-token");
+  });
+
+  it("returns a safe product search response when no bearer token is present", async () => {
+    const response = await handleVercelRuntimeRequest(
+      new Request("https://app.example.test/api/admin/products/search?q=shirt"),
+    );
+    const body = (await response.json()) as {
+      message: string;
+    };
+
+    expect(response.status).toBe(410);
+    expect(body.message).toBe(
+      "We could not search Shopify products. Reload the app from Shopify admin.",
+    );
+  });
+
+  it("returns a safe product search response when Shopify token authentication fails", async () => {
+    const response = await handleVercelRuntimeRequest(
+      new Request("https://app.example.test/api/admin/products/search", {
+        headers: {
+          Authorization: "Bearer invalid-product-token",
+        },
+      }),
+      {
+        authenticateAdmin() {
+          throw new Error("raw product token validation failure");
+        },
+      },
+    );
+    const serializedBody = JSON.stringify(await response.json());
+
+    expect(response.status).toBe(410);
+    expect(serializedBody).not.toContain("raw product token validation failure");
+    expect(serializedBody).not.toContain("invalid-product-token");
+  });
+
+  it("searches products for a valid authenticated admin context", async () => {
+    const searchProducts = vi.fn().mockResolvedValue({
+      products: [
+        {
+          id: "gid://shopify/Product/1",
+          title: "Linen Shirt",
+          handle: "linen-shirt",
+          status: "ACTIVE",
+          featuredImage: null,
+          variants: [
+            {
+              id: "gid://shopify/ProductVariant/1",
+              title: "Default Title",
+              sku: "LINEN-1",
+              price: "24.00",
+              inventoryQuantity: 4,
+            },
+          ],
+        },
+      ],
+      pageInfo: {
+        hasNextPage: true,
+        endCursor: "cursor-1",
+      },
+    });
+    const response = await handleVercelRuntimeRequest(
+      new Request(
+        "https://app.example.test/api/admin/products/search?q=linen%20shirt&first=80&after=cursor-0",
+      ),
+      {
+        authenticateAdmin() {
+          return Promise.resolve({
+            session: {
+              shop: "test-shop.myshopify.com",
+            },
+          });
+        },
+        loadProductSearchSession(shopDomain) {
+          expect(shopDomain).toBe("test-shop.myshopify.com");
+          return Promise.resolve({
+            shop: shopDomain,
+            accessToken: "offline-token",
+          });
+        },
+        searchProducts,
+      },
+    );
+    const body = (await response.json()) as {
+      products: Array<{ title: string }>;
+      pageInfo: { endCursor: string | null };
+    };
+    const serializedBody = JSON.stringify(body);
+
+    expect(response.status).toBe(200);
+    expect(body.products[0]?.title).toBe("Linen Shirt");
+    expect(body.pageInfo.endCursor).toBe("cursor-1");
+    expect(searchProducts).toHaveBeenCalledWith(
+      {
+        shop: "test-shop.myshopify.com",
+        accessToken: "offline-token",
+      },
+      {
+        q: "linen shirt",
+        first: 80,
+        after: "cursor-0",
+      },
+    );
+    expect(serializedBody).not.toContain("offline-token");
+    expect(serializedBody).not.toContain("accessToken");
+    expect(serializedBody).not.toContain("session");
+    expect(serializedBody).not.toContain("SHOPIFY_API_SECRET");
+  });
+
+  it("returns a safe setup response when no offline Shopify session exists", async () => {
+    const response = await handleVercelRuntimeRequest(
+      new Request("https://app.example.test/api/admin/products/search"),
+      {
+        authenticateAdmin() {
+          return Promise.resolve({
+            session: {
+              shop: "test-shop.myshopify.com",
+            },
+          });
+        },
+        loadProductSearchSession() {
+          return Promise.resolve(undefined);
+        },
+        searchProducts() {
+          throw new Error("should not search without a session");
+        },
+      },
+    );
+    const serializedBody = JSON.stringify(await response.json());
+
+    expect(response.status).toBe(410);
+    expect(serializedBody).not.toContain("accessToken");
+    expect(serializedBody).not.toContain("session");
+  });
+
+  it("converts Shopify Admin API failures into safe product search JSON", async () => {
+    vi.stubEnv("SHOPIFY_API_KEY", "test_api_key");
+    vi.stubEnv("SHOPIFY_API_SECRET", "test_secret");
+    vi.stubEnv("SHOPIFY_APP_URL", "https://app.example.test");
+    vi.stubEnv("SHOPIFY_SCOPES", "read_products");
+    vi.stubEnv("SHOPIFY_API_VERSION", "2026-04");
+    const token = createTestSessionToken("test-shop.myshopify.com", "test_api_key", "test_secret");
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
+      Response.json(
+        {
+          errors: [{ message: "raw Shopify failure with offline-token" }],
+        },
+        { status: 200 },
+      ),
+    );
+    vi.stubGlobal("fetch", fetch);
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    const response = await handleVercelRuntimeRequest(
+      new Request("https://app.example.test/api/admin/products/search?q=shirt", {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      }),
+      {
+        authenticateAdmin() {
+          throw new Error("offline session unavailable");
+        },
+        loadProductSearchSession() {
+          return Promise.resolve({
+            shop: "test-shop.myshopify.com",
+            accessToken: "offline-token",
+          });
+        },
+      },
+    );
+    const serializedBody = JSON.stringify(await response.json());
+    const serializedLogs = JSON.stringify(consoleError.mock.calls);
+
+    expect(response.status).toBe(502);
+    expect(serializedBody).toContain("Unable to search Shopify products right now.");
+    expect(serializedBody).not.toContain("offline-token");
+    expect(serializedBody).not.toContain("raw Shopify failure");
+    expect(serializedLogs).not.toContain("offline-token");
+    expect(serializedLogs).not.toContain("raw Shopify failure");
+
+    consoleError.mockRestore();
   });
 
   it("resolves dashboard shop context from a valid App Bridge bearer token", async () => {
@@ -294,6 +477,24 @@ describe("Vercel runtime route surface", () => {
         {
           source: "/api/admin/dashboard",
           destination: "/api/admin-dashboard",
+        },
+      ]),
+    );
+  });
+
+  it("keeps the product search path on the Vercel server route surface", async () => {
+    const vercelConfig = JSON.parse(await readFile("vercel.json", "utf8")) as {
+      rewrites?: Array<{
+        source: string;
+        destination: string;
+      }>;
+    };
+
+    expect(vercelConfig.rewrites).toEqual(
+      expect.arrayContaining([
+        {
+          source: "/api/admin/products/search",
+          destination: "/api/admin-products-search",
         },
       ]),
     );

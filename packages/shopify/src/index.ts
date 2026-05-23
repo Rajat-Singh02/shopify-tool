@@ -40,3 +40,18 @@ export {
   normalizeShopifyWebhookTopic,
   type ShopifyWebhookTopic as ShopifyWebhookTopicValue,
 } from "./webhooks.js";
+
+export {
+  SHOPIFY_PRODUCT_SEARCH_QUERY,
+  ShopifyProductSearchError,
+  mapShopifyProductSearchResponse,
+  sanitizeProductSearchInput,
+  searchShopifyProducts,
+  type ProductSearchImage,
+  type ProductSearchInput,
+  type ProductSearchProduct,
+  type ProductSearchResponse,
+  type ProductSearchVariant,
+  type SanitizedProductSearchInput,
+  type ShopifyProductGraphqlClient,
+} from "./products.js";
