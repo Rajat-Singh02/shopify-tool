@@ -2,7 +2,7 @@
 
 client_id = "507ec4018317a9c292eed04878307f58"
 name = "ANTIQUINN"
-application_url = "https://shopify-tool-git-main-rajat-sahadev-s-projects.vercel.app"
+application_url = "https://shopify-tool-live-git-main-rajat-sahadev-s-projects.vercel.app"
 embedded = true
 
 [webhooks]
@@ -18,5 +18,5 @@ scopes = "read_products"
 
 [auth]
 redirect_urls = [
-  "https://shopify-tool-git-main-rajat-sahadev-s-projects.vercel.app/auth/callback"
+  "https://shopify-tool-live-git-main-rajat-sahadev-s-projects.vercel.app/auth/callback"
 ]
