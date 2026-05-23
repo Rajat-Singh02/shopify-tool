@@ -4,6 +4,7 @@ import { useLocation, useNavigate } from "react-router";
 
 const navigationItems = [
   { label: "Dashboard", destination: "/", icon: HomeIcon },
+  { label: "Products", destination: "/products", icon: ProductIcon },
   { label: "Videos", destination: "/videos", icon: PlayIcon, disabled: true },
   { label: "Widgets", destination: "/widgets", icon: ProductIcon, disabled: true },
 ];
