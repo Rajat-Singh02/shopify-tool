@@ -228,6 +228,12 @@ describe("storefront widget service", () => {
 
     expect(script).toContain("data-shop");
     expect(script).toContain("data-widget-id");
+    expect(script).toContain("/api/storefront/events");
+    expect(script).toContain("sendBeacon");
+    expect(script).toContain("keepalive");
+    expect(script).toContain("VIDEO_IMPRESSION");
+    expect(script).toContain("PRODUCT_CLICK");
+    expect(script).toContain(".catch(() => {})");
     expect(script).toContain("document.createElement");
     expect(script).toContain("textContent");
     expect(script).not.toContain("innerHTML");

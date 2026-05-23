@@ -89,7 +89,24 @@ export function createStorefrontWidgetBootstrapScript(): string {
     return;
   }
   const endpoint = new URL("/api/storefront/widgets/" + encodeURIComponent(widgetId), script.src);
+  const eventEndpoint = new URL("/api/storefront/events", script.src);
   endpoint.searchParams.set("shop", shop);
+  const sendEvent = (event) => {
+    try {
+      const body = JSON.stringify(Object.assign({ shop, widgetId, metadata: { source: "widget" } }, event));
+      if (navigator.sendBeacon) {
+        const blob = new Blob([body], { type: "application/json" });
+        navigator.sendBeacon(eventEndpoint.toString(), blob);
+        return;
+      }
+      fetch(eventEndpoint.toString(), {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body,
+        keepalive: true
+      }).catch(() => {});
+    } catch {}
+  };
   fetch(endpoint.toString(), { headers: { Accept: "application/json" } })
     .then((response) => {
       if (!response.ok) throw new Error("widget unavailable");
@@ -119,20 +136,33 @@ export function createStorefrontWidgetBootstrapScript(): string {
           media.src = video.publicUrl;
           media.controls = true;
           media.playsInline = true;
+          media.addEventListener("play", () => sendEvent({ eventType: "VIDEO_PLAY", videoId: video.id }));
+          media.addEventListener("pause", () => sendEvent({ eventType: "VIDEO_PAUSE", videoId: video.id }));
           item.appendChild(media);
         }
         const tagList = document.createElement("ul");
         const tags = Array.isArray(video.tags) ? video.tags : [];
         for (const tag of tags) {
           const tagItem = document.createElement("li");
-          setText(tagItem, [tag.productTitle, tag.variantTitle].filter(Boolean).join(" - "));
+          const tagButton = document.createElement("button");
+          tagButton.type = "button";
+          setText(tagButton, [tag.productTitle, tag.variantTitle].filter(Boolean).join(" - "));
+          tagButton.addEventListener("click", () => sendEvent({
+            eventType: "PRODUCT_CLICK",
+            videoId: video.id,
+            productId: tag.productId,
+            variantId: tag.variantId
+          }));
+          tagItem.appendChild(tagButton);
           tagList.appendChild(tagItem);
         }
         item.appendChild(tagList);
         list.appendChild(item);
+        sendEvent({ eventType: "VIDEO_IMPRESSION", videoId: video.id });
       }
       container.appendChild(list);
       mount.appendChild(container);
+      sendEvent({ eventType: "WIDGET_VIEW" });
     })
     .catch(() => renderMessage("Shoppable video widget is unavailable."));
 })();`;
