@@ -22,6 +22,14 @@ import {
   type VideoProcessingDispatcher,
   type VideoUploadShop,
 } from "./video-upload.js";
+import {
+  createVideoProductTag,
+  deleteVideoProductTag,
+  listVideoProductTags,
+  VideoProductTagExpectedError,
+  type SafeVideoProductTagDto,
+  type VideoProductTagsListResponse,
+} from "./video-product-tags.js";
 
 export const config = {
   api: {
@@ -35,6 +43,7 @@ type VercelRuntimeRoute =
   | "health"
   | "product-search"
   | "video-library"
+  | "video-product-tags"
   | "video-upload"
   | "webhook"
   | "not-found";
@@ -101,6 +110,7 @@ type RuntimeDependencies = {
   handleAdminDashboard?: (request: Request) => Promise<Response>;
   handleProductSearch?: (request: Request) => Promise<Response>;
   handleVideoLibrary?: (request: Request) => Promise<Response>;
+  handleVideoProductTags?: (request: Request) => Promise<Response>;
   handleVideoUpload?: (request: Request) => Promise<Response>;
   handleWebhook?: (request: Request) => Promise<Response>;
   loadDashboardShop?: (shopDomain: string) => Promise<DashboardShopRecord>;
@@ -130,6 +140,20 @@ type RuntimeDependencies = {
   ) => Promise<VideoLibraryListResponse>;
   getVideo?: (shop: VideoUploadShop, videoId: string) => Promise<SafeVideoLibraryDto>;
   archiveVideo?: (shop: VideoUploadShop, videoId: string) => Promise<SafeVideoLibraryDto>;
+  listVideoProductTags?: (
+    shop: VideoUploadShop,
+    videoId: string,
+  ) => Promise<VideoProductTagsListResponse>;
+  createVideoProductTag?: (
+    shop: VideoUploadShop,
+    videoId: string,
+    input: unknown,
+  ) => Promise<SafeVideoProductTagDto>;
+  deleteVideoProductTag?: (
+    shop: VideoUploadShop,
+    videoId: string,
+    tagId: string,
+  ) => Promise<{ deleted: true }>;
 };
 
 type DashboardDiagnosticError = Error & {
@@ -165,6 +189,12 @@ export function resolveVercelRuntimeRoute(pathname: string): VercelRuntimeRoute 
     /^\/api\/admin\/videos\/[^/]+\/(upload|complete-upload)$/.test(normalizedVideoPath)
   ) {
     return "video-upload";
+  }
+
+  if (
+    /^\/api\/admin\/videos\/[^/]+\/product-tags(?:\/[^/]+)?$/.test(normalizedVideoPath)
+  ) {
+    return "video-product-tags";
   }
 
   if (
@@ -224,6 +254,10 @@ export async function handleVercelRuntimeRequest(
 
   if (route === "video-library") {
     return handleVideoLibraryRequest(request, dependencies);
+  }
+
+  if (route === "video-product-tags") {
+    return handleVideoProductTagsRequest(request, dependencies);
   }
 
   if (route === "video-upload") {
@@ -682,6 +716,225 @@ function logVideoLibraryError(error: unknown): void {
 function videoLibraryFailureResponse(
   status: number,
   message = "We could not load the video library. Reload the app from Shopify admin.",
+): Response {
+  return Response.json(
+    {
+      message,
+    },
+    {
+      status,
+      headers: {
+        "Cache-Control": "no-store",
+      },
+    },
+  );
+}
+
+async function handleVideoProductTagsRequest(
+  request: Request,
+  {
+    authenticateAdmin,
+    createVideoProductTag: createTag,
+    deleteVideoProductTag: deleteTag,
+    handleVideoProductTags,
+    listVideoProductTags: listTags,
+    loadVideoUploadShop,
+  }: RuntimeDependencies,
+): Promise<Response> {
+  if (handleVideoProductTags) {
+    return handleVideoProductTags(request);
+  }
+
+  if (!authenticateAdmin && !hasBearerAuthorization(request)) {
+    return videoProductTagsFailureResponse(410);
+  }
+
+  let authenticated = false;
+
+  try {
+    const authResult = await authenticateDashboardRequest(request, authenticateAdmin);
+    authenticated = true;
+    const shop = loadVideoUploadShop
+      ? await loadVideoUploadShop(authResult.session.shop)
+      : await loadVideoUploadShopFromDatabase(authResult.session.shop);
+    const action = parseVideoProductTagsAction(request);
+
+    if (action.kind === "list") {
+      if (request.method !== "GET") {
+        return videoProductTagsFailureResponse(
+          405,
+          "Product tag listing only supports GET requests.",
+        );
+      }
+
+      const result = listTags
+        ? await listTags(shop, action.videoId)
+        : await listVideoProductTagsWithDatabase(shop, action.videoId);
+
+      return Response.json(result, {
+        headers: {
+          "Cache-Control": "no-store",
+        },
+      });
+    }
+
+    if (action.kind === "create") {
+      if (request.method !== "POST") {
+        return videoProductTagsFailureResponse(
+          405,
+          "Product tag creation only supports POST requests.",
+        );
+      }
+
+      const body = await parseVideoProductTagJsonRequestBody(request);
+      const tag = createTag
+        ? await createTag(shop, action.videoId, body)
+        : await createVideoProductTagWithDatabase(shop, action.videoId, body);
+
+      return Response.json(
+        {
+          tag,
+        },
+        {
+          status: 201,
+          headers: {
+            "Cache-Control": "no-store",
+          },
+        },
+      );
+    }
+
+    if (request.method !== "DELETE") {
+      return videoProductTagsFailureResponse(
+        405,
+        "Product tag removal only supports DELETE requests.",
+      );
+    }
+
+    const result = deleteTag
+      ? await deleteTag(shop, action.videoId, action.tagId)
+      : await deleteVideoProductTagWithDatabase(shop, action.videoId, action.tagId);
+
+    return Response.json(result, {
+      headers: {
+        "Cache-Control": "no-store",
+      },
+    });
+  } catch (error) {
+    if (error instanceof Response) {
+      return error;
+    }
+
+    if (error instanceof VideoProductTagExpectedError) {
+      logVideoProductTagsError(error);
+      return videoProductTagsFailureResponse(error.status, error.clientMessage);
+    }
+
+    const status = authenticated ? 500 : 410;
+
+    if (authenticated) {
+      logVideoProductTagsError(error);
+    }
+
+    return videoProductTagsFailureResponse(status >= 400 && status < 500 ? status : 500);
+  }
+}
+
+type VideoProductTagsAction =
+  | { kind: "list"; videoId: string }
+  | { kind: "create"; videoId: string }
+  | { kind: "delete"; videoId: string; tagId: string };
+
+function parseVideoProductTagsAction(request: Request): VideoProductTagsAction {
+  const pathname = new URL(request.url).pathname.replace(/^\/api\/admin-videos/, "/api/admin/videos");
+  const match = pathname.match(/^\/api\/admin\/videos\/([^/]+)\/product-tags(?:\/([^/]+))?$/);
+
+  if (!match?.[1]) {
+    throw new VideoProductTagExpectedError("Product tag route was not found", 404);
+  }
+
+  const videoId = decodeURIComponent(match[1]);
+
+  if (match[2]) {
+    return {
+      kind: "delete",
+      videoId,
+      tagId: decodeURIComponent(match[2]),
+    };
+  }
+
+  return request.method === "POST" ? { kind: "create", videoId } : { kind: "list", videoId };
+}
+
+async function parseVideoProductTagJsonRequestBody(request: Request): Promise<unknown> {
+  try {
+    return (await request.json()) as unknown;
+  } catch {
+    throw new VideoProductTagExpectedError("Request body must be valid JSON", 400);
+  }
+}
+
+async function listVideoProductTagsWithDatabase(
+  shop: VideoUploadShop,
+  videoId: string,
+): Promise<VideoProductTagsListResponse> {
+  const { getPrismaClient, VideoProductTagRepository, VideoRepository } = await import("@shoppable-video/db");
+  const prismaClient = getPrismaClient();
+
+  return listVideoProductTags({
+    shop,
+    videoId,
+    videoRepository: new VideoRepository(prismaClient),
+    tagRepository: new VideoProductTagRepository(prismaClient),
+  });
+}
+
+async function createVideoProductTagWithDatabase(
+  shop: VideoUploadShop,
+  videoId: string,
+  input: unknown,
+): Promise<SafeVideoProductTagDto> {
+  const { getPrismaClient, VideoProductTagRepository, VideoRepository } = await import("@shoppable-video/db");
+  const prismaClient = getPrismaClient();
+
+  return createVideoProductTag({
+    shop,
+    videoId,
+    input,
+    videoRepository: new VideoRepository(prismaClient),
+    tagRepository: new VideoProductTagRepository(prismaClient),
+  });
+}
+
+async function deleteVideoProductTagWithDatabase(
+  shop: VideoUploadShop,
+  videoId: string,
+  tagId: string,
+): Promise<{ deleted: true }> {
+  const { getPrismaClient, VideoProductTagRepository, VideoRepository } = await import("@shoppable-video/db");
+  const prismaClient = getPrismaClient();
+
+  return deleteVideoProductTag({
+    shop,
+    videoId,
+    tagId,
+    videoRepository: new VideoRepository(prismaClient),
+    tagRepository: new VideoProductTagRepository(prismaClient),
+  });
+}
+
+function logVideoProductTagsError(error: unknown): void {
+  const reason = error instanceof Error ? error.name : "UnknownVideoProductTagError";
+
+  console.error("Failed to handle video product tag request", {
+    operation: "videos.productTags",
+    reason,
+  });
+}
+
+function videoProductTagsFailureResponse(
+  status: number,
+  message = "We could not update video product tags. Reload the app from Shopify admin.",
 ): Response {
   return Response.json(
     {

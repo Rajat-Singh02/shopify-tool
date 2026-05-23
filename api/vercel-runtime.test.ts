@@ -27,6 +27,8 @@ describe("Vercel runtime route surface", () => {
     ["/api/admin/videos", "video-library"],
     ["/api/admin/videos/video_1", "video-library"],
     ["/api/admin/videos/video_1/archive", "video-library"],
+    ["/api/admin/videos/video_1/product-tags", "video-product-tags"],
+    ["/api/admin/videos/video_1/product-tags/tag_1", "video-product-tags"],
     ["/api/admin/videos/upload-intent", "video-upload"],
     ["/api/admin/videos/video_1/upload", "video-upload"],
     ["/api/admin/videos/video_1/complete-upload", "video-upload"],
@@ -459,6 +461,127 @@ describe("Vercel runtime route surface", () => {
       },
       "video_1",
     );
+  });
+
+  it("returns a safe product tagging response when no bearer token is present", async () => {
+    const response = await handleVercelRuntimeRequest(
+      new Request("https://app.example.test/api/admin/videos/video_1/product-tags"),
+    );
+    const body = (await response.json()) as {
+      message: string;
+    };
+
+    expect(response.status).toBe(410);
+    expect(body.message).toBe(
+      "We could not update video product tags. Reload the app from Shopify admin.",
+    );
+  });
+
+  it("lists, creates, and deletes video product tags through the runtime adapter", async () => {
+    const tag = {
+      id: "tag_1",
+      videoId: "video_1",
+      productId: "gid://shopify/Product/1",
+      productTitle: "Linen Shirt",
+      variantId: "gid://shopify/ProductVariant/1",
+      variantTitle: "Small",
+      createdAt: "2026-05-23T00:00:00.000Z",
+    };
+    const dependencies = {
+      authenticateAdmin() {
+        return Promise.resolve({
+          session: {
+            shop: "test-shop.myshopify.com",
+          },
+        });
+      },
+      loadVideoUploadShop() {
+        return Promise.resolve({
+          id: "shop_1",
+          shopDomain: "test-shop.myshopify.com",
+        });
+      },
+      listVideoProductTags: vi.fn().mockResolvedValue({
+        tags: [tag],
+      }),
+      createVideoProductTag: vi.fn().mockResolvedValue(tag),
+      deleteVideoProductTag: vi.fn().mockResolvedValue({
+        deleted: true,
+      }),
+    };
+    const listResponse = await handleVercelRuntimeRequest(
+      new Request("https://app.example.test/api/admin/videos/video_1/product-tags"),
+      dependencies,
+    );
+    const createResponse = await handleVercelRuntimeRequest(
+      new Request("https://app.example.test/api/admin/videos/video_1/product-tags", {
+        method: "POST",
+        body: JSON.stringify({
+          productId: "gid://shopify/Product/1",
+          productTitle: "Linen Shirt",
+          variantId: "gid://shopify/ProductVariant/1",
+          variantTitle: "Small",
+        }),
+      }),
+      dependencies,
+    );
+    const deleteResponse = await handleVercelRuntimeRequest(
+      new Request("https://app.example.test/api/admin/videos/video_1/product-tags/tag_1", {
+        method: "DELETE",
+      }),
+      dependencies,
+    );
+    const listBody = (await listResponse.json()) as {
+      tags: Array<{ id: string }>;
+    };
+    const createBody = (await createResponse.json()) as {
+      tag: {
+        id: string;
+      };
+    };
+    const deleteBody = (await deleteResponse.json()) as {
+      deleted: boolean;
+    };
+    const serializedBody = JSON.stringify({
+      listBody,
+      createBody,
+      deleteBody,
+    });
+
+    expect(listResponse.status).toBe(200);
+    expect(createResponse.status).toBe(201);
+    expect(deleteResponse.status).toBe(200);
+    expect(listBody.tags[0]?.id).toBe("tag_1");
+    expect(createBody.tag.id).toBe("tag_1");
+    expect(deleteBody.deleted).toBe(true);
+    expect(dependencies.listVideoProductTags).toHaveBeenCalledWith(
+      {
+        id: "shop_1",
+        shopDomain: "test-shop.myshopify.com",
+      },
+      "video_1",
+    );
+    expect(dependencies.createVideoProductTag).toHaveBeenCalledWith(
+      {
+        id: "shop_1",
+        shopDomain: "test-shop.myshopify.com",
+      },
+      "video_1",
+      expect.objectContaining({
+        productId: "gid://shopify/Product/1",
+      }),
+    );
+    expect(dependencies.deleteVideoProductTag).toHaveBeenCalledWith(
+      {
+        id: "shop_1",
+        shopDomain: "test-shop.myshopify.com",
+      },
+      "video_1",
+      "tag_1",
+    );
+    expect(serializedBody).not.toContain("accessToken");
+    expect(serializedBody).not.toContain("DATABASE_URL");
+    expect(serializedBody).not.toContain("storageKeyOriginal");
   });
 
   it("creates a manual video upload intent for an authenticated shop", async () => {
