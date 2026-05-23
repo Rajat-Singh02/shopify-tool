@@ -19,6 +19,11 @@ import type {
   VideoDetailClient,
   VideoLibraryClient,
 } from "../services/video-library";
+import type {
+  CreateVideoProductTagClient,
+  DeleteVideoProductTagClient,
+  VideoProductTagsClient,
+} from "../services/video-product-tags";
 import type { VideoUploadClient } from "../services/video-upload";
 
 type AppProps = {
@@ -28,6 +33,9 @@ type AppProps = {
   loadVideoLibrary?: VideoLibraryClient;
   loadVideoDetail?: VideoDetailClient;
   archiveVideo?: VideoArchiveClient;
+  loadVideoProductTags?: VideoProductTagsClient;
+  createVideoProductTag?: CreateVideoProductTagClient;
+  deleteVideoProductTag?: DeleteVideoProductTagClient;
   uploadVideo?: VideoUploadClient;
 };
 
@@ -38,6 +46,9 @@ export function App({
   loadVideoLibrary,
   loadVideoDetail,
   archiveVideo,
+  loadVideoProductTags,
+  createVideoProductTag,
+  deleteVideoProductTag,
   uploadVideo,
 }: AppProps) {
   const [dashboardState, setDashboardState] = useState<AdminDashboardState>(
@@ -85,6 +96,10 @@ export function App({
                 loadVideoLibrary={loadVideoLibrary}
                 loadVideoDetail={loadVideoDetail}
                 archiveVideo={archiveVideo}
+                searchProducts={searchProducts}
+                loadVideoProductTags={loadVideoProductTags}
+                createVideoProductTag={createVideoProductTag}
+                deleteVideoProductTag={deleteVideoProductTag}
               />
             }
           />
