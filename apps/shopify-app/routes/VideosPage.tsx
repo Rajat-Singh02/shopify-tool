@@ -14,6 +14,14 @@ import {
 import { useCallback, useEffect, useId, useState } from "react";
 
 import {
+  fetchAdminProductSearch,
+  PRODUCT_SEARCH_SAFE_ERROR_MESSAGE,
+  type ProductSearchClient,
+  type ProductSearchProduct,
+  type ProductSearchResult,
+  type ProductSearchVariant,
+} from "../services/product-search";
+import {
   archiveAdminVideo,
   fetchAdminVideoDetail,
   fetchAdminVideoLibrary,
@@ -27,6 +35,17 @@ import {
   type VideoLibrarySource,
   type VideoLibraryStatus,
 } from "../services/video-library";
+import {
+  createVideoProductTag as createAdminVideoProductTag,
+  deleteVideoProductTag as deleteAdminVideoProductTag,
+  fetchVideoProductTags,
+  VIDEO_PRODUCT_TAGS_SAFE_ERROR_MESSAGE,
+  type CreateVideoProductTagClient,
+  type DeleteVideoProductTagClient,
+  type VideoProductTag,
+  type VideoProductTagsClient,
+  type VideoProductTagsResult,
+} from "../services/video-product-tags";
 import {
   ALLOWED_VIDEO_MIME_TYPES,
   formatVideoFileSize,
@@ -42,6 +61,10 @@ type VideosPageProps = {
   loadVideoLibrary?: VideoLibraryClient;
   loadVideoDetail?: VideoDetailClient;
   archiveVideo?: VideoArchiveClient;
+  searchProducts?: ProductSearchClient;
+  loadVideoProductTags?: VideoProductTagsClient;
+  createVideoProductTag?: CreateVideoProductTagClient;
+  deleteVideoProductTag?: DeleteVideoProductTagClient;
 };
 
 type UploadState =
@@ -71,6 +94,10 @@ export function VideosPage({
   loadVideoLibrary = fetchAdminVideoLibrary,
   loadVideoDetail = fetchAdminVideoDetail,
   archiveVideo = archiveAdminVideo,
+  searchProducts = fetchAdminProductSearch,
+  loadVideoProductTags = fetchVideoProductTags,
+  createVideoProductTag = createAdminVideoProductTag,
+  deleteVideoProductTag = deleteAdminVideoProductTag,
 }: VideosPageProps) {
   const fileInputId = useId();
   const statusFilterId = useId();
@@ -469,6 +496,10 @@ export function VideosPage({
                 isArchiving={archiveLoadingId === video.id}
                 onViewDetails={() => void handleLoadVideoDetail(video.id)}
                 onArchive={() => void handleArchiveVideo(video)}
+                searchProducts={searchProducts}
+                loadVideoProductTags={loadVideoProductTags}
+                createVideoProductTag={createVideoProductTag}
+                deleteVideoProductTag={deleteVideoProductTag}
               />
             ))}
             <InlineStack align="center">
@@ -516,6 +547,10 @@ function VideoLibraryCard({
   isArchiving,
   onViewDetails,
   onArchive,
+  searchProducts,
+  loadVideoProductTags,
+  createVideoProductTag,
+  deleteVideoProductTag,
 }: {
   video: VideoLibraryItem;
   isSelected: boolean;
@@ -524,6 +559,10 @@ function VideoLibraryCard({
   isArchiving: boolean;
   onViewDetails: () => void;
   onArchive: () => void;
+  searchProducts: ProductSearchClient;
+  loadVideoProductTags: VideoProductTagsClient;
+  createVideoProductTag: CreateVideoProductTagClient;
+  deleteVideoProductTag: DeleteVideoProductTagClient;
 }) {
   const displayedVideo = selectedVideo ?? video;
 
@@ -569,6 +608,14 @@ function VideoLibraryCard({
             <Text as="p">Source: {displayedVideo.source}</Text>
             <Text as="p">Duration: {formatVideoDuration(displayedVideo.durationMs)}</Text>
             <Text as="p">Dimensions: {formatVideoDimensions(displayedVideo)}</Text>
+            <VideoProductTaggingPanel
+              key={displayedVideo.id}
+              video={displayedVideo}
+              searchProducts={searchProducts}
+              loadVideoProductTags={loadVideoProductTags}
+              createVideoProductTag={createVideoProductTag}
+              deleteVideoProductTag={deleteVideoProductTag}
+            />
           </BlockStack>
         ) : null}
 
@@ -588,6 +635,379 @@ function VideoLibraryCard({
       </BlockStack>
     </Card>
   );
+}
+
+type TagState =
+  | { status: "loading"; result: VideoProductTagsResult | null; message?: undefined }
+  | { status: "ready"; result: VideoProductTagsResult; message?: undefined }
+  | { status: "error"; result: VideoProductTagsResult | null; message: string };
+
+type TagProductSearchState =
+  | { status: "idle"; result: ProductSearchResult | null; message?: undefined }
+  | { status: "loading"; result: ProductSearchResult | null; message?: undefined }
+  | { status: "ready"; result: ProductSearchResult; message?: undefined }
+  | { status: "error"; result: ProductSearchResult | null; message: string };
+
+function VideoProductTaggingPanel({
+  video,
+  searchProducts,
+  loadVideoProductTags,
+  createVideoProductTag,
+  deleteVideoProductTag,
+}: {
+  video: VideoLibraryItem;
+  searchProducts: ProductSearchClient;
+  loadVideoProductTags: VideoProductTagsClient;
+  createVideoProductTag: CreateVideoProductTagClient;
+  deleteVideoProductTag: DeleteVideoProductTagClient;
+}) {
+  const [tagState, setTagState] = useState<TagState>({
+    status: "loading",
+    result: null,
+  });
+  const [productQuery, setProductQuery] = useState("");
+  const [productSearchState, setProductSearchState] = useState<TagProductSearchState>({
+    status: "idle",
+    result: null,
+  });
+  const [taggingVariantId, setTaggingVariantId] = useState<string | null>(null);
+  const [removingTagId, setRemovingTagId] = useState<string | null>(null);
+  const tags = tagState.result?.tags ?? [];
+  const isArchived = video.status === "ARCHIVED";
+
+  const loadTags = useCallback(async () => {
+    setTagState((currentState) => ({
+      status: "loading",
+      result: currentState.result,
+    }));
+
+    try {
+      setTagState({
+        status: "ready",
+        result: await loadVideoProductTags(video.id),
+      });
+    } catch {
+      setTagState({
+        status: "error",
+        result: null,
+        message: VIDEO_PRODUCT_TAGS_SAFE_ERROR_MESSAGE,
+      });
+    }
+  }, [loadVideoProductTags, video.id]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    loadVideoProductTags(video.id)
+      .then((result) => {
+        if (isMounted) {
+          setTagState({
+            status: "ready",
+            result,
+          });
+        }
+      })
+      .catch(() => {
+        if (isMounted) {
+          setTagState({
+            status: "error",
+            result: null,
+            message: VIDEO_PRODUCT_TAGS_SAFE_ERROR_MESSAGE,
+          });
+        }
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [loadVideoProductTags, video.id]);
+
+  async function runProductSearch() {
+    setProductSearchState((currentState) => ({
+      status: "loading",
+      result: currentState.result,
+    }));
+
+    try {
+      setProductSearchState({
+        status: "ready",
+        result: await searchProducts({
+          q: productQuery,
+          first: 20,
+          after: undefined,
+        }),
+      });
+    } catch {
+      setProductSearchState({
+        status: "error",
+        result: productSearchState.result,
+        message: PRODUCT_SEARCH_SAFE_ERROR_MESSAGE,
+      });
+    }
+  }
+
+  async function addVariantTag(product: ProductSearchProduct, variant: ProductSearchVariant) {
+    if (isArchived || isVariantAlreadyTagged(tags, variant.id)) {
+      return;
+    }
+
+    try {
+      setTaggingVariantId(variant.id);
+      const tag = await createVideoProductTag(video.id, {
+        productId: product.id,
+        productTitle: product.title,
+        productHandle: product.handle,
+        variantId: variant.id,
+        variantTitle: variant.title,
+        sku: variant.sku,
+      });
+
+      setTagState((currentState) => {
+        const currentTags = currentState.result?.tags ?? [];
+        const existingTagIndex = currentTags.findIndex((currentTag) => currentTag.id === tag.id);
+        const nextTags =
+          existingTagIndex === -1
+            ? [...currentTags, tag]
+            : currentTags.map((currentTag) => (currentTag.id === tag.id ? tag : currentTag));
+
+        return {
+          status: "ready",
+          result: {
+            tags: nextTags,
+          },
+        };
+      });
+    } catch {
+      setTagState({
+        status: "error",
+        result: tagState.result,
+        message: VIDEO_PRODUCT_TAGS_SAFE_ERROR_MESSAGE,
+      });
+    } finally {
+      setTaggingVariantId(null);
+    }
+  }
+
+  async function removeTag(tag: VideoProductTag) {
+    if (!window.confirm(`Remove ${tag.productTitle} from this video?`)) {
+      return;
+    }
+
+    try {
+      setRemovingTagId(tag.id);
+      await deleteVideoProductTag(video.id, tag.id);
+      setTagState((currentState) => ({
+        status: "ready",
+        result: {
+          tags: (currentState.result?.tags ?? []).filter((currentTag) => currentTag.id !== tag.id),
+        },
+      }));
+    } catch {
+      setTagState({
+        status: "error",
+        result: tagState.result,
+        message: VIDEO_PRODUCT_TAGS_SAFE_ERROR_MESSAGE,
+      });
+    } finally {
+      setRemovingTagId(null);
+    }
+  }
+
+  return (
+    <BlockStack gap="300">
+      <BlockStack gap="100">
+        <Text as="h4" variant="headingSm">
+          Product tags
+        </Text>
+        <Text as="p" tone="subdued">
+          Tag this video with Shopify product variants. Product-only tags are not available yet.
+        </Text>
+      </BlockStack>
+
+      {isArchived ? (
+        <Banner tone="warning" title="Archived video">
+          Archived videos cannot be tagged.
+        </Banner>
+      ) : null}
+
+      {tagState.status === "loading" ? (
+        <InlineStack gap="300" blockAlign="center">
+          <Spinner accessibilityLabel="Loading video product tags" size="small" />
+          <Text as="p" tone="subdued">
+            Loading video product tags
+          </Text>
+        </InlineStack>
+      ) : null}
+
+      {tagState.status === "error" ? (
+        <Banner tone="critical" title="Product tags unavailable">
+          {tagState.message}
+        </Banner>
+      ) : null}
+
+      {tagState.status === "ready" && tags.length === 0 ? (
+        <Text as="p" tone="subdued">
+          No product variants are tagged yet.
+        </Text>
+      ) : null}
+
+      {tags.length > 0 ? (
+        <BlockStack gap="200">
+          {tags.map((tag) => (
+            <InlineStack key={tag.id} gap="300" align="space-between" blockAlign="center">
+              <BlockStack gap="050">
+                <Text as="p" fontWeight="medium">
+                  {tag.productTitle}
+                </Text>
+                <Text as="p" tone="subdued">
+                  Variant: {tag.variantTitle ?? tag.variantId}
+                </Text>
+              </BlockStack>
+              <Button
+                onClick={() => void removeTag(tag)}
+                loading={removingTagId === tag.id}
+                disabled={removingTagId !== null}
+              >
+                Remove tag
+              </Button>
+            </InlineStack>
+          ))}
+        </BlockStack>
+      ) : null}
+
+      <form
+        onSubmit={(event) => {
+          event.preventDefault();
+          void runProductSearch();
+        }}
+      >
+        <InlineStack gap="300" blockAlign="end">
+          <div style={{ flex: 1 }}>
+            <TextField
+              label="Search products to tag"
+              value={productQuery}
+              onChange={setProductQuery}
+              autoComplete="off"
+              placeholder="Search by product title, handle, or SKU"
+              disabled={isArchived}
+            />
+          </div>
+          <Button
+            variant="primary"
+            submit
+            loading={productSearchState.status === "loading"}
+            disabled={isArchived}
+          >
+            Search products
+          </Button>
+        </InlineStack>
+      </form>
+
+      {productSearchState.status === "error" ? (
+        <Banner tone="critical" title="Product search unavailable">
+          {productSearchState.message}
+        </Banner>
+      ) : null}
+
+      {productSearchState.status === "loading" ? (
+        <InlineStack gap="300" blockAlign="center">
+          <Spinner accessibilityLabel="Searching products to tag" size="small" />
+          <Text as="p" tone="subdued">
+            Searching products to tag
+          </Text>
+        </InlineStack>
+      ) : null}
+
+      {productSearchState.status === "ready" && productSearchState.result.products.length === 0 ? (
+        <Text as="p" tone="subdued">
+          No products found for tagging.
+        </Text>
+      ) : null}
+
+      {productSearchState.result && productSearchState.result.products.length > 0 ? (
+        <BlockStack gap="300">
+          {productSearchState.result.products.map((product) => (
+            <ProductTagSearchResult
+              key={product.id}
+              product={product}
+              tags={tags}
+              isArchived={isArchived}
+              taggingVariantId={taggingVariantId}
+              onTagVariant={(variant) => void addVariantTag(product, variant)}
+            />
+          ))}
+        </BlockStack>
+      ) : null}
+
+      <Button onClick={() => void loadTags()} disabled={tagState.status === "loading"}>
+        Refresh tags
+      </Button>
+    </BlockStack>
+  );
+}
+
+function ProductTagSearchResult({
+  product,
+  tags,
+  isArchived,
+  taggingVariantId,
+  onTagVariant,
+}: {
+  product: ProductSearchProduct;
+  tags: VideoProductTag[];
+  isArchived: boolean;
+  taggingVariantId: string | null;
+  onTagVariant: (variant: ProductSearchVariant) => void;
+}) {
+  return (
+    <BlockStack gap="200">
+      <InlineStack gap="300" align="space-between" blockAlign="center">
+        <BlockStack gap="050">
+          <Text as="p" fontWeight="medium">
+            {product.title}
+          </Text>
+          <Text as="p" tone="subdued">
+            {product.handle} · {product.status}
+          </Text>
+        </BlockStack>
+      </InlineStack>
+
+      {product.variants.length === 0 ? (
+        <Text as="p" tone="subdued">
+          No variants to tag.
+        </Text>
+      ) : (
+        <BlockStack gap="100">
+          {product.variants.map((variant) => {
+            const isAlreadyTagged = isVariantAlreadyTagged(tags, variant.id);
+
+            return (
+              <InlineStack key={variant.id} gap="300" align="space-between" blockAlign="center">
+                <BlockStack gap="050">
+                  <Text as="p">{variant.title}</Text>
+                  <Text as="p" tone="subdued">
+                    SKU: {variant.sku || "None"} · {variant.price} · Inventory:{" "}
+                    {variant.inventoryQuantity ?? "Unknown"}
+                  </Text>
+                </BlockStack>
+                <Button
+                  onClick={() => onTagVariant(variant)}
+                  loading={taggingVariantId === variant.id}
+                  disabled={isArchived || isAlreadyTagged || taggingVariantId !== null}
+                >
+                  {isAlreadyTagged ? "Tagged" : "Tag variant"}
+                </Button>
+              </InlineStack>
+            );
+          })}
+        </BlockStack>
+      )}
+    </BlockStack>
+  );
+}
+
+function isVariantAlreadyTagged(tags: VideoProductTag[], variantId: string): boolean {
+  return tags.some((tag) => tag.variantId === variantId);
 }
 
 function toVideoStatusTone(status: VideoLibraryStatus): "success" | "info" | "warning" | "critical" {

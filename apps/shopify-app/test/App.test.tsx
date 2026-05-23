@@ -13,6 +13,11 @@ import {
   type VideoLibraryItem,
   type VideoLibraryResult,
 } from "../services/video-library";
+import {
+  VIDEO_PRODUCT_TAGS_SAFE_ERROR_MESSAGE,
+  type VideoProductTag,
+  type VideoProductTagsResult,
+} from "../services/video-product-tags";
 import { VIDEO_UPLOAD_SAFE_ERROR_MESSAGE } from "../services/video-upload";
 
 const readyDashboardState = {
@@ -53,6 +58,20 @@ const readyVideo: VideoLibraryItem = {
   height: 1080,
   createdAt: "2026-05-23T00:00:00.000Z",
   updatedAt: "2026-05-23T00:05:00.000Z",
+};
+
+const emptyVideoTagsResult: VideoProductTagsResult = {
+  tags: [],
+};
+
+const readyVideoTag: VideoProductTag = {
+  id: "tag_1",
+  videoId: "video_1",
+  productId: "gid://shopify/Product/1",
+  productTitle: "Linen Shirt",
+  variantId: "gid://shopify/ProductVariant/1",
+  variantTitle: "Small",
+  createdAt: "2026-05-23T00:06:00.000Z",
 };
 
 function renderApp(app: ReactElement, initialEntries = ["/"]) {
@@ -548,6 +567,7 @@ describe("admin app shell", () => {
         loadVideoLibrary={loadVideoLibrary}
         loadVideoDetail={loadVideoDetail}
         archiveVideo={archiveVideo}
+        loadVideoProductTags={() => Promise.resolve(emptyVideoTagsResult)}
       />,
       ["/videos"],
     );
@@ -572,5 +592,236 @@ describe("admin app shell", () => {
     expect(screen.getAllByText("ARCHIVED").length).toBeGreaterThan(0);
     expect(document.body.textContent).not.toContain("DATABASE_URL");
     expect(document.body.textContent).not.toContain("/tmp/shoppable-video-storage");
+  });
+
+  it("loads tags and adds a variant-level product tag from product search", async () => {
+    const loadVideoLibrary = vi.fn().mockResolvedValue({
+      videos: [readyVideo],
+      pageInfo: {
+        hasNextPage: false,
+        endCursor: null,
+      },
+    });
+    const loadVideoProductTags = vi.fn().mockResolvedValue(emptyVideoTagsResult);
+    const createVideoProductTag = vi.fn().mockResolvedValue(readyVideoTag);
+    const searchProducts = vi.fn().mockResolvedValue({
+      products: [
+        {
+          id: "gid://shopify/Product/1",
+          title: "Linen Shirt",
+          handle: "linen-shirt",
+          status: "ACTIVE",
+          featuredImage: null,
+          variants: [
+            {
+              id: "gid://shopify/ProductVariant/1",
+              title: "Small",
+              sku: "LINEN-S",
+              price: "24.00",
+              inventoryQuantity: 7,
+            },
+          ],
+        },
+      ],
+      pageInfo: {
+        hasNextPage: false,
+        endCursor: null,
+      },
+    });
+
+    renderApp(
+      <App
+        initialDashboardState={readyDashboardState}
+        loadVideoLibrary={loadVideoLibrary}
+        loadVideoDetail={() => Promise.resolve(readyVideo)}
+        loadVideoProductTags={loadVideoProductTags}
+        createVideoProductTag={createVideoProductTag}
+        searchProducts={searchProducts}
+      />,
+      ["/videos"],
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("demo.mp4")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "View details" }));
+
+    await waitFor(() => {
+      expect(loadVideoProductTags).toHaveBeenCalledWith("video_1");
+    });
+    expect(screen.getByText("Product tags")).toBeInTheDocument();
+    expect(screen.getByText("No product variants are tagged yet.")).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("Search products to tag"), {
+      target: { value: "linen" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Search products" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Linen Shirt")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Tag variant" }));
+
+    await waitFor(() => {
+      expect(createVideoProductTag).toHaveBeenCalledWith("video_1", {
+        productId: "gid://shopify/Product/1",
+        productTitle: "Linen Shirt",
+        productHandle: "linen-shirt",
+        variantId: "gid://shopify/ProductVariant/1",
+        variantTitle: "Small",
+        sku: "LINEN-S",
+      });
+    });
+    expect(screen.getByRole("button", { name: "Tagged" })).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain("shopify-id-token");
+    expect(document.body.textContent).not.toContain("DATABASE_URL");
+  });
+
+  it("loads existing product tags and removes one safely", async () => {
+    const loadVideoProductTags = vi.fn().mockResolvedValue({
+      tags: [readyVideoTag],
+    });
+    const deleteVideoProductTag = vi.fn().mockResolvedValue({ deleted: true });
+
+    vi.stubGlobal("confirm", vi.fn(() => true));
+
+    renderApp(
+      <App
+        initialDashboardState={readyDashboardState}
+        loadVideoLibrary={() =>
+          Promise.resolve({
+            videos: [readyVideo],
+            pageInfo: {
+              hasNextPage: false,
+              endCursor: null,
+            },
+          })
+        }
+        loadVideoDetail={() => Promise.resolve(readyVideo)}
+        loadVideoProductTags={loadVideoProductTags}
+        deleteVideoProductTag={deleteVideoProductTag}
+      />,
+      ["/videos"],
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("demo.mp4")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "View details" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Variant: Small")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove tag" }));
+
+    await waitFor(() => {
+      expect(deleteVideoProductTag).toHaveBeenCalledWith("video_1", "tag_1");
+    });
+    await waitFor(() => {
+      expect(screen.queryByText("Variant: Small")).not.toBeInTheDocument();
+    });
+  });
+
+  it("shows safe tagging errors and does not allow product-only tags", async () => {
+    const searchProducts = vi.fn().mockResolvedValue({
+      products: [
+        {
+          id: "gid://shopify/Product/2",
+          title: "Hat",
+          handle: "hat",
+          status: "ACTIVE",
+          featuredImage: null,
+          variants: [],
+        },
+      ],
+      pageInfo: {
+        hasNextPage: false,
+        endCursor: null,
+      },
+    });
+
+    renderApp(
+      <App
+        initialDashboardState={readyDashboardState}
+        loadVideoLibrary={() =>
+          Promise.resolve({
+            videos: [readyVideo],
+            pageInfo: {
+              hasNextPage: false,
+              endCursor: null,
+            },
+          })
+        }
+        loadVideoDetail={() => Promise.resolve(readyVideo)}
+        loadVideoProductTags={() => Promise.reject(new Error("raw tag backend failure"))}
+        searchProducts={searchProducts}
+      />,
+      ["/videos"],
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("demo.mp4")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "View details" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Product tags unavailable")).toBeInTheDocument();
+    });
+    expect(screen.getByText(VIDEO_PRODUCT_TAGS_SAFE_ERROR_MESSAGE)).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain("raw tag backend failure");
+
+    fireEvent.change(screen.getByLabelText("Search products to tag"), {
+      target: { value: "hat" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Search products" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("No variants to tag.")).toBeInTheDocument();
+    });
+    expect(screen.queryByRole("button", { name: "Tag variant" })).not.toBeInTheDocument();
+  });
+
+  it("blocks tagging controls for archived videos", async () => {
+    const archivedVideo: VideoLibraryItem = {
+      ...readyVideo,
+      status: "ARCHIVED",
+    };
+
+    renderApp(
+      <App
+        initialDashboardState={readyDashboardState}
+        loadVideoLibrary={() =>
+          Promise.resolve({
+            videos: [archivedVideo],
+            pageInfo: {
+              hasNextPage: false,
+              endCursor: null,
+            },
+          })
+        }
+        loadVideoDetail={() => Promise.resolve(archivedVideo)}
+        loadVideoProductTags={() => Promise.resolve(emptyVideoTagsResult)}
+      />,
+      ["/videos"],
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("demo.mp4")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "View details" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Archived videos cannot be tagged.")).toBeInTheDocument();
+    });
+    expect(screen.getByRole("button", { name: "Search products" })).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
   });
 });

@@ -1,6 +1,6 @@
-# Product Tagging Backend
+# Product Tagging
 
-Feature 6A adds backend-only product tagging foundations for videos.
+Feature 6 adds product tagging foundations for videos.
 
 ## Endpoints
 
@@ -12,6 +12,17 @@ Feature 6A adds backend-only product tagging foundations for videos.
   - Soft-removes one active tag from a current-shop video.
 
 All endpoints require embedded Shopify admin authentication and return safe JSON only.
+
+## Frontend Behavior
+
+Feature 6B adds variant-level tagging controls in the existing Videos detail panel.
+
+- Select a video from the library, then use the product search box in the Product tags section.
+- Product search uses `GET /api/admin/products/search`.
+- Tag actions are variant-level because the current backend contract requires `variantId`.
+- Existing tags load when a video is selected.
+- Removing a tag calls the tag delete endpoint and updates the panel without exposing raw backend data.
+- Archived videos show a blocked state and do not allow new tag actions.
 
 ## GID Rules
 
@@ -28,10 +39,9 @@ Deleting a tag sets `isActive` to false. It does not delete analytics history an
 
 ## Not Included
 
-- Frontend tagging UI.
 - Live Shopify validation during tag creation.
 - Storefront widget rendering.
 - Analytics.
 - Product-level tags without a variant.
 
-Future Feature 6B should add the embedded admin tagging UI on top of these endpoints.
+Future work should add manual QA docs and storefront rendering behavior.
