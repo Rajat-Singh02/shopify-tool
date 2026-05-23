@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import { createHmac } from "node:crypto";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -8,8 +8,8 @@ import {
   handleVercelRuntimeRequest,
   resolveVercelRuntimeRoute,
 } from "../../api/[...path]";
-import { StorefrontAnalyticsExpectedError } from "../../api/storefront-analytics";
-import { StorefrontWidgetExpectedError } from "../../api/storefront-widget";
+import { StorefrontAnalyticsExpectedError } from "../../server/api/storefront-analytics";
+import { StorefrontWidgetExpectedError } from "../../server/api/storefront-widget";
 
 describe("Vercel runtime route surface", () => {
   afterEach(() => {
@@ -1584,7 +1584,7 @@ describe("Vercel runtime route surface", () => {
     );
   });
 
-  it("keeps the manual video upload paths on the Vercel server route surface", async () => {
+  it("keeps admin routes on one nested Vercel API catch-all function", async () => {
     const vercelConfig = JSON.parse(await readFile("vercel.json", "utf8")) as {
       rewrites?: Array<{
         source: string;
@@ -1597,30 +1597,17 @@ describe("Vercel runtime route surface", () => {
         rewrite.destination.includes("/api/admin-videos"),
       ),
     ).toBe(false);
+    expect(vercelConfig.rewrites).toEqual(
+      expect.arrayContaining([
+        {
+          source: "/api/admin/:path*",
+          destination: "/api/admin/[...path]",
+        },
+      ]),
+    );
 
-    await expect(readFile("api/admin/videos/index.ts", "utf8")).resolves.toContain(
-      "../../[...path].js",
-    );
-    await expect(readFile("api/admin/videos/[videoId]/upload.ts", "utf8")).resolves.toContain(
-      "../../../[...path].js",
-    );
-    await expect(
-      readFile("api/admin/videos/[videoId]/complete-upload.ts", "utf8"),
-    ).resolves.toContain("../../../[...path].js");
-  });
-
-  it("keeps the admin widgets and analytics paths on concrete Vercel API functions", async () => {
-    await expect(readFile("api/admin/widgets/index.ts", "utf8")).resolves.toContain(
-      "../../[...path].js",
-    );
-    await expect(readFile("api/admin/widgets/[widgetId]/index.ts", "utf8")).resolves.toContain(
-      "../../../[...path].js",
-    );
-    await expect(readFile("api/admin/analytics/summary.ts", "utf8")).resolves.toContain(
-      "../../[...path].js",
-    );
-    await expect(readFile("api/admin/analytics/events.ts", "utf8")).resolves.toContain(
-      "../../[...path].js",
+    await expect(readFile("api/admin/[...path].ts", "utf8")).resolves.toContain(
+      "../[...path].js",
     );
   });
 
@@ -1638,14 +1625,15 @@ describe("Vercel runtime route surface", () => {
           source: "/widget.js",
           destination: "/api/widget",
         },
+        {
+          source: "/api/storefront/:path*",
+          destination: "/api/storefront/[...path]",
+        },
       ]),
     );
     await expect(readFile("api/widget.ts", "utf8")).resolves.toContain("./[...path].js");
-    await expect(readFile("api/storefront/events.ts", "utf8")).resolves.toContain(
+    await expect(readFile("api/storefront/[...path].ts", "utf8")).resolves.toContain(
       "../[...path].js",
-    );
-    await expect(readFile("api/storefront/widgets/[widgetId].ts", "utf8")).resolves.toContain(
-      "../../[...path].js",
     );
   });
 
@@ -1667,6 +1655,19 @@ describe("Vercel runtime route surface", () => {
         },
       ]),
     );
+  });
+
+  it("keeps Vercel serverless function files within the Hobby preview limit", async () => {
+    const functionFiles = await listApiFunctionFiles("api");
+
+    expect(functionFiles).toEqual([
+      "api/[...path].ts",
+      "api/admin/[...path].ts",
+      "api/auth/[...path].ts",
+      "api/storefront/[...path].ts",
+      "api/widget.ts",
+    ]);
+    expect(functionFiles.length).toBeLessThanOrEqual(12);
   });
 });
 
@@ -1694,6 +1695,26 @@ function createTestSessionToken(shop: string, apiKey: string, apiSecretKey: stri
     .digest("base64url");
 
   return `${encodedHeader}.${encodedPayload}.${signature}`;
+}
+
+async function listApiFunctionFiles(directory: string): Promise<string[]> {
+  const entries = await readdir(directory, { withFileTypes: true });
+  const files: string[] = [];
+
+  for (const entry of entries) {
+    const childPath = `${directory}/${entry.name}`;
+
+    if (entry.isDirectory()) {
+      files.push(...(await listApiFunctionFiles(childPath)));
+      continue;
+    }
+
+    if (entry.isFile() && entry.name.endsWith(".ts") && entry.name !== "tsconfig.json") {
+      files.push(childPath);
+    }
+  }
+
+  return files.sort();
 }
 
 function base64UrlEncode(value: string): string {

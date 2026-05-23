@@ -5,8 +5,8 @@
     "declaration": true,
     "declarationMap": true,
     "outDir": "../dist/api",
-    "rootDir": "."
+    "rootDir": ".."
   },
-  "include": ["**/*.ts"],
+  "include": ["**/*.ts", "../server/api/**/*.ts"],
   "references": [{ "path": "../packages/db" }, { "path": "../packages/shopify" }]
 }

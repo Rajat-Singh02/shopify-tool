@@ -5,7 +5,7 @@ import {
   getStorefrontWidgetPayload,
   StorefrontWidgetExpectedError,
   toPublicStorefrontWidgetPayload,
-} from "../../api/storefront-widget";
+} from "../../server/api/storefront-widget";
 import type { StorefrontWidgetRecord } from "@shoppable-video/db";
 
 const now = new Date("2026-05-23T00:00:00.000Z");
