@@ -31,6 +31,12 @@ export {
   type WebhookDeliveryRepositoryClient,
 } from "./repositories/webhook-delivery-repository.js";
 export {
+  VideoRepository,
+  type CreateManualUploadVideoInput,
+  type VideoRecord,
+  type VideoRepositoryClient,
+} from "./repositories/video-repository.js";
+export {
   PrismaShopifySessionStorage,
   type ShopifySessionRecord,
   type ShopifySessionStorageClient,

@@ -1,6 +1,18 @@
 import { createHash } from "node:crypto";
 import type { IncomingHttpHeaders, IncomingMessage, ServerResponse } from "node:http";
 
+import {
+  completeManualUpload,
+  createManualUploadIntent,
+  createStorageProviderFromEnv,
+  VideoUploadExpectedError,
+  writeManualUploadObject,
+  type SafeVideoDto,
+  type StorageProvider,
+  type UploadIntentResult,
+  type VideoUploadShop,
+} from "./video-upload.js";
+
 export const config = {
   api: {
     bodyParser: false,
@@ -12,6 +24,7 @@ type VercelRuntimeRoute =
   | "auth"
   | "health"
   | "product-search"
+  | "video-upload"
   | "webhook"
   | "not-found";
 
@@ -24,6 +37,7 @@ type AdminAuthResult = {
 };
 
 type DashboardShopRecord = {
+  id: string;
   shopDomain: string;
   installedAt: Date;
 };
@@ -75,13 +89,25 @@ type RuntimeDependencies = {
   authenticateWebhook?: (request: Request) => Promise<WebhookContext>;
   handleAdminDashboard?: (request: Request) => Promise<Response>;
   handleProductSearch?: (request: Request) => Promise<Response>;
+  handleVideoUpload?: (request: Request) => Promise<Response>;
   handleWebhook?: (request: Request) => Promise<Response>;
   loadDashboardShop?: (shopDomain: string) => Promise<DashboardShopRecord>;
+  loadVideoUploadShop?: (shopDomain: string) => Promise<VideoUploadShop>;
   loadProductSearchSession?: (shopDomain: string) => Promise<ProductSearchSession | undefined>;
   searchProducts?: (
     session: ProductSearchSession,
     input: ProductSearchInput,
   ) => Promise<ProductSearchResponse>;
+  createUploadIntent?: (
+    shop: VideoUploadShop,
+    input: unknown,
+  ) => Promise<UploadIntentResult>;
+  writeUploadObject?: (
+    shop: VideoUploadShop,
+    videoId: string,
+    request: Request,
+  ) => Promise<SafeVideoDto>;
+  completeUpload?: (shop: VideoUploadShop, videoId: string) => Promise<SafeVideoDto>;
 };
 
 type DashboardDiagnosticError = Error & {
@@ -108,6 +134,15 @@ export function resolveVercelRuntimeRoute(pathname: string): VercelRuntimeRoute 
     pathname === "/api/admin-products-search"
   ) {
     return "product-search";
+  }
+
+  if (
+    pathname === "/api/admin/videos/upload-intent" ||
+    pathname.startsWith("/api/admin/videos/") ||
+    pathname === "/api/admin-videos/upload-intent" ||
+    pathname.startsWith("/api/admin-videos/")
+  ) {
+    return "video-upload";
   }
 
   if (pathname === "/api/webhooks" || pathname === "/webhooks") {
@@ -156,6 +191,10 @@ export async function handleVercelRuntimeRequest(
 
   if (route === "product-search") {
     return handleProductSearchRequest(request, dependencies);
+  }
+
+  if (route === "video-upload") {
+    return handleVideoUploadRequest(request, dependencies);
   }
 
   if (route === "webhook") {
@@ -405,6 +444,236 @@ function logProductSearchError(error: unknown): void {
 function productSearchFailureResponse(
   status: number,
   message = "We could not search Shopify products. Reload the app from Shopify admin.",
+): Response {
+  return Response.json(
+    {
+      message,
+    },
+    {
+      status,
+      headers: {
+        "Cache-Control": "no-store",
+      },
+    },
+  );
+}
+
+async function handleVideoUploadRequest(
+  request: Request,
+  {
+    authenticateAdmin,
+    handleVideoUpload,
+    loadVideoUploadShop,
+    createUploadIntent,
+    writeUploadObject,
+    completeUpload,
+  }: RuntimeDependencies,
+): Promise<Response> {
+  if (handleVideoUpload) {
+    return handleVideoUpload(request);
+  }
+
+  if (!authenticateAdmin && !hasBearerAuthorization(request)) {
+    return videoUploadFailureResponse(410);
+  }
+
+  let authenticated = false;
+
+  try {
+    const authResult = await authenticateDashboardRequest(request, authenticateAdmin);
+    authenticated = true;
+    const shop = loadVideoUploadShop
+      ? await loadVideoUploadShop(authResult.session.shop)
+      : await loadVideoUploadShopFromDatabase(authResult.session.shop);
+    const action = parseVideoUploadAction(request);
+
+    if (action.kind === "upload-intent") {
+      if (request.method !== "POST") {
+        return videoUploadFailureResponse(405, "Upload intent only supports POST requests.");
+      }
+
+      const body = await parseJsonRequestBody(request);
+      const result = createUploadIntent
+        ? await createUploadIntent(shop, body)
+        : await createUploadIntentWithDatabase(shop, body);
+
+      return Response.json(result, {
+        status: 201,
+        headers: {
+          "Cache-Control": "no-store",
+        },
+      });
+    }
+
+    if (action.kind === "upload") {
+      if (request.method !== "PUT" && request.method !== "POST") {
+        return videoUploadFailureResponse(405, "Video upload only supports PUT or POST requests.");
+      }
+
+      const video = writeUploadObject
+        ? await writeUploadObject(shop, action.videoId, request)
+        : await writeUploadObjectWithDatabase(shop, action.videoId, request);
+
+      return Response.json(
+        {
+          video,
+        },
+        {
+          headers: {
+            "Cache-Control": "no-store",
+          },
+        },
+      );
+    }
+
+    if (request.method !== "POST") {
+      return videoUploadFailureResponse(405, "Upload completion only supports POST requests.");
+    }
+
+    const video = completeUpload
+      ? await completeUpload(shop, action.videoId)
+      : await completeUploadWithDatabase(shop, action.videoId);
+
+    return Response.json(
+      {
+        video,
+      },
+      {
+        headers: {
+          "Cache-Control": "no-store",
+        },
+      },
+    );
+  } catch (error) {
+    if (error instanceof Response) {
+      return error;
+    }
+
+    if (error instanceof VideoUploadExpectedError) {
+      logVideoUploadError(error);
+      return videoUploadFailureResponse(error.status, error.clientMessage);
+    }
+
+    const status = authenticated ? 500 : 410;
+
+    if (authenticated) {
+      logVideoUploadError(error);
+    }
+
+    return videoUploadFailureResponse(status >= 400 && status < 500 ? status : 500);
+  }
+}
+
+type VideoUploadAction =
+  | { kind: "upload-intent" }
+  | { kind: "upload"; videoId: string }
+  | { kind: "complete-upload"; videoId: string };
+
+function parseVideoUploadAction(request: Request): VideoUploadAction {
+  const pathname = new URL(request.url).pathname.replace(/^\/api\/admin-videos/, "/api/admin/videos");
+
+  if (pathname === "/api/admin/videos/upload-intent") {
+    return { kind: "upload-intent" };
+  }
+
+  const match = pathname.match(/^\/api\/admin\/videos\/([^/]+)\/(upload|complete-upload)$/);
+
+  if (!match?.[1] || !match[2]) {
+    throw new VideoUploadExpectedError("Video upload route was not found", 404);
+  }
+
+  return {
+    kind: match[2] === "upload" ? "upload" : "complete-upload",
+    videoId: decodeURIComponent(match[1]),
+  };
+}
+
+async function parseJsonRequestBody(request: Request): Promise<unknown> {
+  try {
+    return (await request.json()) as unknown;
+  } catch {
+    throw new VideoUploadExpectedError("Request body must be valid JSON", 400);
+  }
+}
+
+async function loadVideoUploadShopFromDatabase(shopDomain: string): Promise<VideoUploadShop> {
+  const { getPrismaClient, ShopRepository } = await import("@shoppable-video/db");
+  const shopRepository = new ShopRepository(getPrismaClient());
+  const shop = await shopRepository.ensureInstalled(shopDomain);
+
+  return {
+    id: shop.id,
+    shopDomain: shop.shopDomain,
+  };
+}
+
+async function createUploadIntentWithDatabase(
+  shop: VideoUploadShop,
+  input: unknown,
+): Promise<UploadIntentResult> {
+  const { getPrismaClient, VideoRepository } = await import("@shoppable-video/db");
+  const videoRepository = new VideoRepository(getPrismaClient());
+
+  return createManualUploadIntent({
+    request: input && typeof input === "object" ? input : {},
+    shop,
+    videoRepository,
+  });
+}
+
+async function writeUploadObjectWithDatabase(
+  shop: VideoUploadShop,
+  videoId: string,
+  request: Request,
+): Promise<SafeVideoDto> {
+  const { getPrismaClient, VideoRepository } = await import("@shoppable-video/db");
+  const videoRepository = new VideoRepository(getPrismaClient());
+  const video = await videoRepository.findOwnedVideo(shop.id, videoId);
+
+  if (!video) {
+    throw new VideoUploadExpectedError("Video was not found", 404);
+  }
+
+  return writeManualUploadObject({
+    video,
+    contentType: request.headers.get("Content-Type"),
+    body: new Uint8Array(await request.arrayBuffer()),
+    storageProvider: createStorageProviderFromEnv(),
+  });
+}
+
+async function completeUploadWithDatabase(
+  shop: VideoUploadShop,
+  videoId: string,
+  storageProvider: StorageProvider = createStorageProviderFromEnv(),
+): Promise<SafeVideoDto> {
+  const { getPrismaClient, VideoRepository } = await import("@shoppable-video/db");
+  const videoRepository = new VideoRepository(getPrismaClient());
+  const video = await videoRepository.findOwnedVideo(shop.id, videoId);
+
+  if (!video) {
+    throw new VideoUploadExpectedError("Video was not found", 404);
+  }
+
+  return completeManualUpload({
+    video,
+    videoRepository,
+    storageProvider,
+  });
+}
+
+function logVideoUploadError(error: unknown): void {
+  const reason = error instanceof Error ? error.name : "UnknownVideoUploadError";
+
+  console.error("Failed to handle manual video upload", {
+    operation: "videos.manualUpload",
+    reason,
+  });
+}
+
+function videoUploadFailureResponse(
+  status: number,
+  message = "We could not handle the video upload request. Reload the app from Shopify admin.",
 ): Response {
   return Response.json(
     {
