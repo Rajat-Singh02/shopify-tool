@@ -312,10 +312,14 @@ describe("manual video upload services", () => {
     expect(dispatcher.dispatchVideoProcessingJob).not.toHaveBeenCalled();
   });
 
-  it("converts processing dispatch failures into a safe upload error", async () => {
+  it("keeps upload completion successful when processing dispatch fails", async () => {
     tempDir = await mkdtemp(path.join(tmpdir(), "shoppable-video-upload-"));
     const provider = new LocalStorageProvider(tempDir);
     const video = createVideo();
+    const failedVideo = createVideo({
+      status: "FAILED",
+      failureReason: "ffprobe unavailable",
+    });
 
     await provider.writeObject({
       key: video.storageKeyOriginal ?? "",
@@ -330,15 +334,18 @@ describe("manual video upload services", () => {
           markOriginalUploadComplete(input: VideoRecord) {
             return Promise.resolve(input);
           },
+          findById(videoId: string) {
+            return Promise.resolve(videoId === video.id ? failedVideo : null);
+          },
         },
         storageProvider: provider,
         processingDispatcher: {
           dispatchVideoProcessingJob: vi.fn().mockRejectedValue(new Error("private /tmp/path")),
         },
       }),
-    ).rejects.toMatchObject({
-      status: 500,
-      clientMessage: "We could not start video processing. Try completing the upload again.",
+    ).resolves.toMatchObject({
+      id: video.id,
+      status: "FAILED",
     });
   });
 });
