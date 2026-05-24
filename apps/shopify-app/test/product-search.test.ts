@@ -81,4 +81,21 @@ describe("fetchAdminProductSearch", () => {
       PRODUCT_SEARCH_SAFE_ERROR_MESSAGE,
     );
   });
+
+  it("uses a safe server message when product search needs reconnection", async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+      Response.json(
+        {
+          message: "Reconnect the app from Shopify admin, then try product search again.",
+        },
+        {
+          status: 410,
+        },
+      ),
+    );
+
+    await expect(fetchAdminProductSearch({}, fetcher)).rejects.toThrow(
+      "Reconnect the app from Shopify admin, then try product search again.",
+    );
+  });
 });
