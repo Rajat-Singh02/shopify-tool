@@ -758,6 +758,60 @@ describe("admin app shell", () => {
     expect(document.body.textContent).not.toContain("/tmp/shoppable-video-storage");
   });
 
+  it("opens uploaded video details immediately while detail refresh is pending", async () => {
+    const uploadedVideo: VideoLibraryItem = {
+      ...readyVideo,
+      id: "video_uploaded",
+      status: "UPLOADED",
+      durationMs: null,
+      width: null,
+      height: null,
+      updatedAt: "2026-05-23T00:07:00.000Z",
+    };
+    let resolveDetail: (video: VideoLibraryItem) => void = () => undefined;
+    const loadVideoLibrary = vi.fn().mockResolvedValue({
+      videos: [uploadedVideo],
+      pageInfo: {
+        hasNextPage: false,
+        endCursor: null,
+      },
+    });
+    const loadVideoDetail = vi.fn(
+      () =>
+        new Promise<VideoLibraryItem>((resolve) => {
+          resolveDetail = resolve;
+        }),
+    );
+    const loadVideoProductTags = vi.fn().mockResolvedValue(emptyVideoTagsResult);
+
+    renderApp(
+      <App
+        initialDashboardState={readyDashboardState}
+        loadVideoLibrary={loadVideoLibrary}
+        loadVideoDetail={loadVideoDetail}
+        loadVideoProductTags={loadVideoProductTags}
+      />,
+      ["/videos"],
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("demo.mp4")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "View details" }));
+
+    expect(loadVideoDetail).toHaveBeenCalledWith("video_uploaded");
+    await waitFor(() => {
+      expect(screen.getByText("Video details")).toBeInTheDocument();
+    });
+    expect(screen.getByText("ID: video_uploaded")).toBeInTheDocument();
+    expect(screen.getByText("Status: UPLOADED")).toBeInTheDocument();
+    expect(screen.getByText("Video not ready for product tags")).toBeInTheDocument();
+    expect(loadVideoProductTags).not.toHaveBeenCalled();
+
+    resolveDetail(uploadedVideo);
+  });
+
   it("retries processing for uploaded and failed manual videos", async () => {
     const failedVideo: VideoLibraryItem = {
       ...readyVideo,
