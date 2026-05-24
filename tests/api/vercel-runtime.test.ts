@@ -35,6 +35,7 @@ describe("Vercel runtime route surface", () => {
     ["/api/admin/videos", "video-library"],
     ["/api/admin/videos/video_1", "video-library"],
     ["/api/admin/videos/video_1/archive", "video-library"],
+    ["/api/admin/videos/video_1/retry-processing", "video-library"],
     ["/api/admin/videos/video_1/product-tags", "video-product-tags"],
     ["/api/admin/videos/video_1/product-tags/tag_1", "video-product-tags"],
     ["/api/admin/videos/upload-intent", "video-upload"],
@@ -591,11 +592,7 @@ describe("Vercel runtime route surface", () => {
     expect(dependencies.attachAdminWidgetVideo).toHaveBeenCalledWith(shop, "widget_1", {
       videoId: "video_1",
     });
-    expect(dependencies.detachAdminWidgetVideo).toHaveBeenCalledWith(
-      shop,
-      "widget_1",
-      "video_1",
-    );
+    expect(dependencies.detachAdminWidgetVideo).toHaveBeenCalledWith(shop, "widget_1", "video_1");
     expect(serializedBodies).not.toContain("admin-widget-token");
     expect(serializedBodies).not.toContain("session");
     expect(serializedBodies).not.toContain("/tmp/shoppable-video-storage");
@@ -775,9 +772,7 @@ describe("Vercel runtime route surface", () => {
       }),
       {
         recordStorefrontEvent() {
-          return Promise.reject(
-            new StorefrontAnalyticsExpectedError("eventType is invalid", 400),
-          );
+          return Promise.reject(new StorefrontAnalyticsExpectedError("eventType is invalid", 400));
         },
       },
     );
@@ -907,6 +902,16 @@ describe("Vercel runtime route surface", () => {
     expect(body.message).toBe(
       "We could not load the video library. Reload the app from Shopify admin.",
     );
+  });
+
+  it("requires admin auth for video processing retry", async () => {
+    const response = await handleVercelRuntimeRequest(
+      new Request("https://app.example.test/api/admin/videos/video_1/retry-processing", {
+        method: "POST",
+      }),
+    );
+
+    expect(response.status).toBe(401);
   });
 
   it("lists videos for an authenticated shop through the runtime adapter", async () => {
@@ -1046,6 +1051,58 @@ describe("Vercel runtime route surface", () => {
       "video_1",
     );
     expect(archiveVideo).toHaveBeenCalledWith(
+      {
+        id: "shop_1",
+        shopDomain: "test-shop.myshopify.com",
+      },
+      "video_1",
+    );
+  });
+
+  it("retries video processing through the runtime adapter", async () => {
+    const retryVideoProcessing = vi.fn().mockResolvedValue({
+      id: "video_1",
+      source: "MANUAL_UPLOAD",
+      status: "READY",
+      originalFilename: "demo.mp4",
+      contentType: "video/mp4",
+      sizeBytes: 4,
+      durationMs: 1234,
+      width: 1280,
+      height: 720,
+      createdAt: "2026-05-23T00:00:00.000Z",
+      updatedAt: "2026-05-23T00:00:00.000Z",
+    });
+    const response = await handleVercelRuntimeRequest(
+      new Request("https://app.example.test/api/admin/videos/video_1/retry-processing", {
+        method: "POST",
+      }),
+      {
+        authenticateAdmin() {
+          return Promise.resolve({
+            session: {
+              shop: "test-shop.myshopify.com",
+            },
+          });
+        },
+        loadVideoUploadShop() {
+          return Promise.resolve({
+            id: "shop_1",
+            shopDomain: "test-shop.myshopify.com",
+          });
+        },
+        retryVideoProcessing,
+      },
+    );
+    const body = (await response.json()) as {
+      video: {
+        status: string;
+      };
+    };
+
+    expect(response.status).toBe(200);
+    expect(body.video.status).toBe("READY");
+    expect(retryVideoProcessing).toHaveBeenCalledWith(
       {
         id: "shop_1",
         shopDomain: "test-shop.myshopify.com",
@@ -1611,7 +1668,9 @@ describe("Vercel runtime route surface", () => {
 
   it("logs safe Prisma diagnostics when authenticated dashboard shop loading fails", async () => {
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
-    const prismaError = new Error("Invalid prisma.shop.upsert invocation with bearer abc") as Error & {
+    const prismaError = new Error(
+      "Invalid prisma.shop.upsert invocation with bearer abc",
+    ) as Error & {
       code: string;
       clientVersion: string;
       meta: Record<string, unknown>;
@@ -1821,9 +1880,7 @@ describe("Vercel runtime route surface", () => {
     };
 
     expect(
-      vercelConfig.rewrites?.some((rewrite) =>
-        rewrite.destination.includes("/api/admin-videos"),
-      ),
+      vercelConfig.rewrites?.some((rewrite) => rewrite.destination.includes("/api/admin-videos")),
     ).toBe(false);
     expect(vercelConfig.rewrites).toEqual(
       expect.arrayContaining([
@@ -1834,9 +1891,7 @@ describe("Vercel runtime route surface", () => {
       ]),
     );
 
-    await expect(readFile("api/admin/[...path].ts", "utf8")).resolves.toContain(
-      "../[...path].js",
-    );
+    await expect(readFile("api/admin/[...path].ts", "utf8")).resolves.toContain("../[...path].js");
   });
 
   it("keeps storefront public paths reachable on Vercel", async () => {

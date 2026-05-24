@@ -67,6 +67,7 @@ export type VideoRepositoryClient = {
         | {
             status: "UPLOADED";
             storageKeyOriginal?: string;
+            failureReason?: null;
           }
         | {
             status: "PROCESSING";
@@ -249,6 +250,7 @@ export class VideoRepository {
       data: {
         status: "UPLOADED",
         storageKeyOriginal: video.storageKeyOriginal,
+        failureReason: null,
       },
     });
   }

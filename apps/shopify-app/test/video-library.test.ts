@@ -5,6 +5,7 @@ import {
   archiveAdminVideo,
   fetchAdminVideoDetail,
   fetchAdminVideoLibrary,
+  retryAdminVideoProcessing,
   VIDEO_LIBRARY_SAFE_ERROR_MESSAGE,
 } from "../services/video-library";
 
@@ -39,7 +40,7 @@ describe("video library client", () => {
     expect(headers.get("Authorization")).toBeNull();
   });
 
-  it("attaches an App Bridge ID token for list, detail, and archive requests", async () => {
+  it("attaches an App Bridge ID token for list, detail, archive, and retry requests", async () => {
     const video = {
       id: "video_1",
       source: "MANUAL_UPLOAD",
@@ -65,22 +66,24 @@ describe("video library client", () => {
         }),
       )
       .mockResolvedValueOnce(Response.json(video))
-      .mockResolvedValueOnce(Response.json({ ...video, status: "ARCHIVED" }));
+      .mockResolvedValueOnce(Response.json({ video: { ...video, status: "ARCHIVED" } }))
+      .mockResolvedValueOnce(Response.json({ video: { ...video, status: "READY" } }));
     const tokenProvider = () => Promise.resolve("shopify-id-token");
 
     await fetchAdminVideoLibrary({ after: "cursor-1", first: 20 }, fetcher, tokenProvider);
     await fetchAdminVideoDetail("video_1", fetcher, tokenProvider);
     await archiveAdminVideo("video_1", fetcher, tokenProvider);
+    await retryAdminVideoProcessing("video_1", fetcher, tokenProvider);
 
     for (const call of fetcher.mock.calls) {
       expect(new Headers(call[1]?.headers).get("Authorization")).toBe("Bearer shopify-id-token");
     }
-    expect(fetcher.mock.calls[0]?.[0]).toBe(
-      `${ADMIN_VIDEO_LIBRARY_PATH}?first=20&after=cursor-1`,
-    );
+    expect(fetcher.mock.calls[0]?.[0]).toBe(`${ADMIN_VIDEO_LIBRARY_PATH}?first=20&after=cursor-1`);
     expect(fetcher.mock.calls[1]?.[0]).toBe(`${ADMIN_VIDEO_LIBRARY_PATH}/video_1`);
     expect(fetcher.mock.calls[2]?.[0]).toBe(`${ADMIN_VIDEO_LIBRARY_PATH}/video_1/archive`);
     expect(fetcher.mock.calls[2]?.[1]?.method).toBe("POST");
+    expect(fetcher.mock.calls[3]?.[0]).toBe(`${ADMIN_VIDEO_LIBRARY_PATH}/video_1/retry-processing`);
+    expect(fetcher.mock.calls[3]?.[1]?.method).toBe("POST");
   });
 
   it("throws a safe error when the video library endpoint is rejected", async () => {

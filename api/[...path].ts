@@ -25,6 +25,7 @@ import {
   archiveVideoLibraryItem,
   getVideoLibraryDetail,
   listVideoLibrary,
+  retryVideoLibraryProcessing,
   VideoLibraryExpectedError,
   type SafeVideoLibraryDto,
   type VideoLibraryListResponse,
@@ -197,26 +198,18 @@ type RuntimeDependencies = {
     widgetId: string,
     videoId: string,
   ) => Promise<{ detached: true }>;
-  createUploadIntent?: (
-    shop: VideoUploadShop,
-    input: unknown,
-  ) => Promise<UploadIntentResult>;
+  createUploadIntent?: (shop: VideoUploadShop, input: unknown) => Promise<UploadIntentResult>;
   writeUploadObject?: (
     shop: VideoUploadShop,
     videoId: string,
     request: Request,
   ) => Promise<SafeVideoDto>;
   completeUpload?: (shop: VideoUploadShop, videoId: string) => Promise<SafeVideoDto>;
-  dispatchVideoProcessingJob?: (
-    shop: VideoUploadShop,
-    videoId: string,
-  ) => Promise<SafeVideoDto>;
-  listVideos?: (
-    shop: VideoUploadShop,
-    query: URLSearchParams,
-  ) => Promise<VideoLibraryListResponse>;
+  dispatchVideoProcessingJob?: (shop: VideoUploadShop, videoId: string) => Promise<SafeVideoDto>;
+  listVideos?: (shop: VideoUploadShop, query: URLSearchParams) => Promise<VideoLibraryListResponse>;
   getVideo?: (shop: VideoUploadShop, videoId: string) => Promise<SafeVideoLibraryDto>;
   archiveVideo?: (shop: VideoUploadShop, videoId: string) => Promise<SafeVideoLibraryDto>;
+  retryVideoProcessing?: (shop: VideoUploadShop, videoId: string) => Promise<SafeVideoLibraryDto>;
   listVideoProductTags?: (
     shop: VideoUploadShop,
     videoId: string,
@@ -307,10 +300,7 @@ export function resolveVercelRuntimeRoute(pathname: string): VercelRuntimeRoute 
     return "admin-widget";
   }
 
-  if (
-    pathname === "/api/admin/products/search" ||
-    pathname === "/api/admin-products-search"
-  ) {
+  if (pathname === "/api/admin/products/search" || pathname === "/api/admin-products-search") {
     return "product-search";
   }
 
@@ -323,15 +313,15 @@ export function resolveVercelRuntimeRoute(pathname: string): VercelRuntimeRoute 
     return "video-upload";
   }
 
-  if (
-    /^\/api\/admin\/videos\/[^/]+\/product-tags(?:\/[^/]+)?$/.test(normalizedVideoPath)
-  ) {
+  if (/^\/api\/admin\/videos\/[^/]+\/product-tags(?:\/[^/]+)?$/.test(normalizedVideoPath)) {
     return "video-product-tags";
   }
 
   if (
     normalizedVideoPath === "/api/admin/videos" ||
-    /^\/api\/admin\/videos\/[^/]+(\/archive|\/restore)?$/.test(normalizedVideoPath)
+    /^\/api\/admin\/videos\/[^/]+(\/archive|\/restore|\/retry-processing)?$/.test(
+      normalizedVideoPath,
+    )
   ) {
     return "video-library";
   }
@@ -624,9 +614,7 @@ async function searchProductsWithAvailableSession(
 async function refreshProductSearchSessionsForShop(
   request: Request,
   shopDomain: string,
-  {
-    refreshProductSearchSessions,
-  }: Pick<RuntimeDependencies, "refreshProductSearchSessions">,
+  { refreshProductSearchSessions }: Pick<RuntimeDependencies, "refreshProductSearchSessions">,
 ): Promise<ProductSearchSession[]> {
   if (refreshProductSearchSessions) {
     return refreshProductSearchSessions(request, shopDomain);
@@ -736,9 +724,7 @@ async function deleteOfflineProductSearchSessionsFromDatabase(shopDomain: string
   });
 }
 
-function parseSerializedShopifySession(
-  payload: string,
-): SerializedShopifySessionProperty[] | null {
+function parseSerializedShopifySession(payload: string): SerializedShopifySessionProperty[] | null {
   try {
     const parsed: unknown = JSON.parse(payload);
 
@@ -1249,7 +1235,9 @@ async function parseAdminWidgetJsonRequestBody(request: Request): Promise<unknow
   }
 }
 
-async function listAdminWidgetsWithDatabase(shop: VideoUploadShop): Promise<AdminWidgetListResponse> {
+async function listAdminWidgetsWithDatabase(
+  shop: VideoUploadShop,
+): Promise<AdminWidgetListResponse> {
   const { getPrismaClient, WidgetRepository } = await import("@shoppable-video/db");
 
   return listAdminWidgets({
@@ -1304,7 +1292,8 @@ async function attachAdminWidgetVideoWithDatabase(
   widgetId: string,
   input: unknown,
 ): Promise<SafeAdminWidgetDto> {
-  const { getPrismaClient, VideoRepository, WidgetRepository } = await import("@shoppable-video/db");
+  const { getPrismaClient, VideoRepository, WidgetRepository } =
+    await import("@shoppable-video/db");
   const prismaClient = getPrismaClient();
 
   return attachAdminWidgetVideo({
@@ -1465,9 +1454,8 @@ function getStorefrontEventRateLimitKey(input: unknown): string {
 async function recordStorefrontEventWithDatabase(
   input: unknown,
 ): Promise<StorefrontAnalyticsResponse> {
-  const { AnalyticsEventRepository, WidgetRepository, getPrismaClient } = await import(
-    "@shoppable-video/db"
-  );
+  const { AnalyticsEventRepository, WidgetRepository, getPrismaClient } =
+    await import("@shoppable-video/db");
   const prismaClient = getPrismaClient();
 
   return ingestStorefrontAnalyticsEvent({
@@ -1614,6 +1602,8 @@ async function handleVideoLibraryRequest(
     handleVideoLibrary,
     listVideos,
     loadVideoUploadShop,
+    retryVideoProcessing,
+    dispatchVideoProcessingJob,
   }: RuntimeDependencies,
 ): Promise<Response> {
   if (handleVideoLibrary) {
@@ -1636,7 +1626,10 @@ async function handleVideoLibraryRequest(
 
     if (action.kind === "list") {
       if (request.method !== "GET") {
-        return videoLibraryFailureResponse(405, "Video library listing only supports GET requests.");
+        return videoLibraryFailureResponse(
+          405,
+          "Video library listing only supports GET requests.",
+        );
       }
 
       const result = listVideos
@@ -1658,6 +1651,40 @@ async function handleVideoLibraryRequest(
       const video = getVideo
         ? await getVideo(shop, action.videoId)
         : await getVideoWithDatabase(shop, action.videoId);
+
+      return Response.json(
+        {
+          video,
+        },
+        {
+          headers: {
+            "Cache-Control": "no-store",
+          },
+        },
+      );
+    }
+
+    if (action.kind === "retry-processing") {
+      if (request.method !== "POST") {
+        return videoLibraryFailureResponse(
+          405,
+          "Video processing retry only supports POST requests.",
+        );
+      }
+
+      const video = retryVideoProcessing
+        ? await retryVideoProcessing(shop, action.videoId)
+        : await retryVideoProcessingWithDatabase(
+            shop,
+            action.videoId,
+            dispatchVideoProcessingJob
+              ? {
+                  dispatchVideoProcessingJob({ videoId }) {
+                    return dispatchVideoProcessingJob(shop, videoId);
+                  },
+                }
+              : createVideoProcessingDispatcherFromEnv(),
+          );
 
       return Response.json(
         {
@@ -1712,16 +1739,22 @@ async function handleVideoLibraryRequest(
 type VideoLibraryAction =
   | { kind: "list" }
   | { kind: "detail"; videoId: string }
-  | { kind: "archive"; videoId: string };
+  | { kind: "archive"; videoId: string }
+  | { kind: "retry-processing"; videoId: string };
 
 function parseVideoLibraryAction(request: Request): VideoLibraryAction {
-  const pathname = new URL(request.url).pathname.replace(/^\/api\/admin-videos/, "/api/admin/videos");
+  const pathname = new URL(request.url).pathname.replace(
+    /^\/api\/admin-videos/,
+    "/api/admin/videos",
+  );
 
   if (pathname === "/api/admin/videos") {
     return { kind: "list" };
   }
 
-  const match = pathname.match(/^\/api\/admin\/videos\/([^/]+)(?:\/(archive|restore))?$/);
+  const match = pathname.match(
+    /^\/api\/admin\/videos\/([^/]+)(?:\/(archive|restore|retry-processing))?$/,
+  );
 
   if (!match?.[1]) {
     throw new VideoLibraryExpectedError("Video library route was not found", 404);
@@ -1731,9 +1764,15 @@ function parseVideoLibraryAction(request: Request): VideoLibraryAction {
     throw new VideoLibraryExpectedError("Video restore is not supported yet", 404);
   }
 
-  return match[2] === "archive"
-    ? { kind: "archive", videoId: decodeURIComponent(match[1]) }
-    : { kind: "detail", videoId: decodeURIComponent(match[1]) };
+  if (match[2] === "archive") {
+    return { kind: "archive", videoId: decodeURIComponent(match[1]) };
+  }
+
+  if (match[2] === "retry-processing") {
+    return { kind: "retry-processing", videoId: decodeURIComponent(match[1]) };
+  }
+
+  return { kind: "detail", videoId: decodeURIComponent(match[1]) };
 }
 
 async function listVideosWithDatabase(
@@ -1781,6 +1820,22 @@ async function archiveVideoWithDatabase(
     shop,
     videoId,
     videoRepository,
+  });
+}
+
+async function retryVideoProcessingWithDatabase(
+  shop: VideoUploadShop,
+  videoId: string,
+  processingDispatcher: VideoProcessingDispatcher = createVideoProcessingDispatcherFromEnv(),
+): Promise<SafeVideoLibraryDto> {
+  const { getPrismaClient, VideoRepository } = await import("@shoppable-video/db");
+  const videoRepository = new VideoRepository(getPrismaClient());
+
+  return retryVideoLibraryProcessing({
+    shop,
+    videoId,
+    videoRepository,
+    processingDispatcher,
   });
 }
 
@@ -1926,7 +1981,10 @@ type VideoProductTagsAction =
   | { kind: "delete"; videoId: string; tagId: string };
 
 function parseVideoProductTagsAction(request: Request): VideoProductTagsAction {
-  const pathname = new URL(request.url).pathname.replace(/^\/api\/admin-videos/, "/api/admin/videos");
+  const pathname = new URL(request.url).pathname.replace(
+    /^\/api\/admin-videos/,
+    "/api/admin/videos",
+  );
   const match = pathname.match(/^\/api\/admin\/videos\/([^/]+)\/product-tags(?:\/([^/]+))?$/);
 
   if (!match?.[1]) {
@@ -1958,7 +2016,8 @@ async function listVideoProductTagsWithDatabase(
   shop: VideoUploadShop,
   videoId: string,
 ): Promise<VideoProductTagsListResponse> {
-  const { getPrismaClient, VideoProductTagRepository, VideoRepository } = await import("@shoppable-video/db");
+  const { getPrismaClient, VideoProductTagRepository, VideoRepository } =
+    await import("@shoppable-video/db");
   const prismaClient = getPrismaClient();
 
   return listVideoProductTags({
@@ -1974,7 +2033,8 @@ async function createVideoProductTagWithDatabase(
   videoId: string,
   input: unknown,
 ): Promise<SafeVideoProductTagDto> {
-  const { getPrismaClient, VideoProductTagRepository, VideoRepository } = await import("@shoppable-video/db");
+  const { getPrismaClient, VideoProductTagRepository, VideoRepository } =
+    await import("@shoppable-video/db");
   const prismaClient = getPrismaClient();
 
   return createVideoProductTag({
@@ -1991,7 +2051,8 @@ async function deleteVideoProductTagWithDatabase(
   videoId: string,
   tagId: string,
 ): Promise<{ deleted: true }> {
-  const { getPrismaClient, VideoProductTagRepository, VideoRepository } = await import("@shoppable-video/db");
+  const { getPrismaClient, VideoProductTagRepository, VideoRepository } =
+    await import("@shoppable-video/db");
   const prismaClient = getPrismaClient();
 
   return deleteVideoProductTag({
@@ -2153,7 +2214,10 @@ type VideoUploadAction =
   | { kind: "complete-upload"; videoId: string };
 
 function parseVideoUploadAction(request: Request): VideoUploadAction {
-  const pathname = new URL(request.url).pathname.replace(/^\/api\/admin-videos/, "/api/admin/videos");
+  const pathname = new URL(request.url).pathname.replace(
+    /^\/api\/admin-videos/,
+    "/api/admin/videos",
+  );
 
   if (pathname === "/api/admin/videos/upload-intent") {
     return { kind: "upload-intent" };
@@ -2246,7 +2310,10 @@ function parseContentLengthHeader(value: string | null): number | null {
   return parsed;
 }
 
-async function readUploadRequestBody(request: Request, expectedSizeBytes: number): Promise<Uint8Array> {
+async function readUploadRequestBody(
+  request: Request,
+  expectedSizeBytes: number,
+): Promise<Uint8Array> {
   if (!request.body) {
     const body = new Uint8Array(await request.arrayBuffer());
 
@@ -2326,7 +2393,8 @@ function createVideoProcessingDispatcherFromEnv(
   return {
     async dispatchVideoProcessingJob({ videoId }) {
       const { getPrismaClient, VideoRepository } = await import("@shoppable-video/db");
-      const videoWorker = (await import("@shoppable-video/video-worker")) as typeof VideoWorkerModule;
+      const videoWorker =
+        (await import("@shoppable-video/video-worker")) as typeof VideoWorkerModule;
       const videoRepository = new VideoRepository(getPrismaClient());
 
       await videoWorker.processVideoJob(

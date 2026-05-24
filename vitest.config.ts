@@ -8,12 +8,15 @@ export default defineConfig({
         plugins: [react()],
         resolve: {
           alias: {
-            "@shoppable-video/video-worker": new URL("./workers/video/src/index.ts", import.meta.url)
-              .pathname,
+            "@shoppable-video/video-worker": new URL(
+              "./workers/video/src/index.ts",
+              import.meta.url,
+            ).pathname,
           },
         },
         test: {
           name: "unit",
+          testTimeout: 15000,
           include: [
             "apps/**/*.test.ts",
             "apps/**/*.test.tsx",

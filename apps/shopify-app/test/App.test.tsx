@@ -168,10 +168,9 @@ describe("admin app shell", () => {
         endCursor: null,
       },
     });
-    renderApp(
-      <App initialDashboardState={readyDashboardState} searchProducts={searchProducts} />,
-      ["/products"],
-    );
+    renderApp(<App initialDashboardState={readyDashboardState} searchProducts={searchProducts} />, [
+      "/products",
+    ]);
 
     expect(screen.getByRole("heading", { name: "Products" })).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText("Search products"), {
@@ -205,10 +204,9 @@ describe("admin app shell", () => {
         endCursor: null,
       },
     });
-    renderApp(
-      <App initialDashboardState={readyDashboardState} searchProducts={searchProducts} />,
-      ["/products"],
-    );
+    renderApp(<App initialDashboardState={readyDashboardState} searchProducts={searchProducts} />, [
+      "/products",
+    ]);
 
     fireEvent.click(screen.getByRole("button", { name: "Search" }));
 
@@ -241,9 +239,7 @@ describe("admin app shell", () => {
     renderApp(
       <App
         initialDashboardState={readyDashboardState}
-        searchProducts={() =>
-          Promise.reject(new Error(PRODUCT_SEARCH_RECONNECT_MESSAGE))
-        }
+        searchProducts={() => Promise.reject(new Error(PRODUCT_SEARCH_RECONNECT_MESSAGE))}
       />,
       ["/products"],
     );
@@ -253,9 +249,7 @@ describe("admin app shell", () => {
     await waitFor(() => {
       expect(screen.getByText("Product search unavailable")).toBeInTheDocument();
     });
-    expect(
-      screen.getByText(PRODUCT_SEARCH_RECONNECT_MESSAGE),
-    ).toBeInTheDocument();
+    expect(screen.getByText(PRODUCT_SEARCH_RECONNECT_MESSAGE)).toBeInTheDocument();
   });
 
   it("loads more product search results with the returned cursor", async () => {
@@ -293,10 +287,9 @@ describe("admin app shell", () => {
           endCursor: "cursor-2",
         },
       });
-    renderApp(
-      <App initialDashboardState={readyDashboardState} searchProducts={searchProducts} />,
-      ["/products"],
-    );
+    renderApp(<App initialDashboardState={readyDashboardState} searchProducts={searchProducts} />, [
+      "/products",
+    ]);
 
     fireEvent.click(screen.getByRole("button", { name: "Search" }));
     await waitFor(() => {
@@ -350,10 +343,9 @@ describe("admin app shell", () => {
           endCursor: "cursor-2",
         },
       });
-    renderApp(
-      <App initialDashboardState={readyDashboardState} searchProducts={searchProducts} />,
-      ["/products"],
-    );
+    renderApp(<App initialDashboardState={readyDashboardState} searchProducts={searchProducts} />, [
+      "/products",
+    ]);
 
     fireEvent.change(screen.getByLabelText("Search products"), {
       target: { value: "linen" },
@@ -403,10 +395,9 @@ describe("admin app shell", () => {
           endCursor: null,
         },
       });
-    renderApp(
-      <App initialDashboardState={readyDashboardState} searchProducts={searchProducts} />,
-      ["/products"],
-    );
+    renderApp(<App initialDashboardState={readyDashboardState} searchProducts={searchProducts} />, [
+      "/products",
+    ]);
 
     fireEvent.change(screen.getByLabelText("Search products"), {
       target: { value: "old" },
@@ -487,7 +478,11 @@ describe("admin app shell", () => {
     fireEvent.click(screen.getByRole("button", { name: "Upload video" }));
 
     await waitFor(() => {
-      expect(screen.getByText("Video video_1 is UPLOADED.")).toBeInTheDocument();
+      expect(
+        screen.getByText(
+          "Video video_1 uploaded and is waiting for processing. It can be attached to widgets after it is ready.",
+        ),
+      ).toBeInTheDocument();
     });
 
     expect(uploadVideo).toHaveBeenCalledWith(file);
@@ -597,6 +592,9 @@ describe("admin app shell", () => {
     expect(screen.getByText("video/mp4 · 4.0 MB")).toBeInTheDocument();
     expect(screen.getByText("Duration: 1:05")).toBeInTheDocument();
     expect(screen.getByText("Dimensions: 1920 x 1080")).toBeInTheDocument();
+    expect(
+      screen.getByText("Ready videos can be tagged and attached to widgets."),
+    ).toBeInTheDocument();
     expect(document.body.textContent).not.toContain("shopify-id-token");
     expect(document.body.textContent).not.toContain("SHOPIFY_API_SECRET");
   });
@@ -722,7 +720,10 @@ describe("admin app shell", () => {
     const loadVideoDetail = vi.fn().mockResolvedValue(readyVideo);
     const archiveVideo = vi.fn().mockResolvedValue(archivedVideo);
 
-    vi.stubGlobal("confirm", vi.fn(() => true));
+    vi.stubGlobal(
+      "confirm",
+      vi.fn(() => true),
+    );
 
     renderApp(
       <App
@@ -755,6 +756,54 @@ describe("admin app shell", () => {
     expect(screen.getAllByText("ARCHIVED").length).toBeGreaterThan(0);
     expect(document.body.textContent).not.toContain("DATABASE_URL");
     expect(document.body.textContent).not.toContain("/tmp/shoppable-video-storage");
+  });
+
+  it("retries processing for uploaded and failed manual videos", async () => {
+    const failedVideo: VideoLibraryItem = {
+      ...readyVideo,
+      status: "FAILED",
+      updatedAt: "2026-05-23T00:10:00.000Z",
+    };
+    const retriedVideo: VideoLibraryItem = {
+      ...failedVideo,
+      status: "READY",
+      durationMs: 65000,
+    };
+    const retryVideoProcessing = vi.fn().mockResolvedValue(retriedVideo);
+
+    renderApp(
+      <App
+        initialDashboardState={readyDashboardState}
+        loadVideoLibrary={() =>
+          Promise.resolve({
+            videos: [failedVideo],
+            pageInfo: {
+              hasNextPage: false,
+              endCursor: null,
+            },
+          })
+        }
+        retryVideoProcessing={retryVideoProcessing}
+      />,
+      ["/videos"],
+    );
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(
+          "Processing failed. Retry processing before attaching this video to a widget.",
+        ),
+      ).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Retry processing" }));
+
+    await waitFor(() => {
+      expect(retryVideoProcessing).toHaveBeenCalledWith("video_1");
+    });
+    expect(
+      screen.getByText("Ready videos can be tagged and attached to widgets."),
+    ).toBeInTheDocument();
   });
 
   it("loads tags and adds a variant-level product tag from product search", async () => {
@@ -848,7 +897,10 @@ describe("admin app shell", () => {
     });
     const deleteVideoProductTag = vi.fn().mockResolvedValue({ deleted: true });
 
-    vi.stubGlobal("confirm", vi.fn(() => true));
+    vi.stubGlobal(
+      "confirm",
+      vi.fn(() => true),
+    );
 
     renderApp(
       <App
@@ -1046,7 +1098,10 @@ describe("admin app shell", () => {
       },
     });
 
-    vi.stubGlobal("confirm", vi.fn(() => true));
+    vi.stubGlobal(
+      "confirm",
+      vi.fn(() => true),
+    );
 
     renderApp(
       <App
@@ -1073,7 +1128,6 @@ describe("admin app shell", () => {
     expect(loadWidgetDetail).toHaveBeenCalledWith("widget_1");
     expect(loadVideoLibrary).toHaveBeenCalledWith({
       first: 50,
-      status: "READY",
       source: "MANUAL_UPLOAD",
     });
     expect(screen.getByLabelText("Widget embed snippet").textContent).toContain(
@@ -1117,6 +1171,45 @@ describe("admin app shell", () => {
     });
     expect(document.body.textContent).not.toContain("DATABASE_URL");
     expect(document.body.textContent).not.toContain("/tmp/shoppable-video-storage");
+  });
+
+  it("shows unavailable widget video candidates without enabling attach", async () => {
+    const failedVideo: VideoLibraryItem = {
+      ...readyVideo,
+      status: "FAILED",
+      originalFilename: "failed.mp4",
+    };
+
+    renderApp(
+      <App
+        initialDashboardState={readyDashboardState}
+        loadWidgets={() => Promise.resolve({ widgets: [readyWidget] })}
+        loadWidgetDetail={() => Promise.resolve(readyWidget)}
+        loadVideoLibrary={() =>
+          Promise.resolve({
+            videos: [failedVideo],
+            pageInfo: {
+              hasNextPage: false,
+              endCursor: null,
+            },
+          })
+        }
+      />,
+      ["/widgets"],
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Homepage videos")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "View details" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Uploaded videos not ready yet")).toBeInTheDocument();
+    });
+    expect(screen.getByText("failed.mp4")).toBeInTheDocument();
+    expect(screen.getByText("Retry processing from Videos before attaching.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Attach video" })).not.toBeInTheDocument();
   });
 
   it("renders safe widget errors without exposing raw backend details", async () => {

@@ -35,6 +35,7 @@ import {
   formatVideoDuration,
   type VideoLibraryClient,
   type VideoLibraryItem,
+  type VideoLibraryStatus,
 } from "../services/video-library";
 import { formatVideoFileSize } from "../services/video-upload";
 
@@ -94,6 +95,17 @@ export function WidgetsPage({
     () => new Set(selectedWidget?.videos.map((video) => video.id) ?? []),
     [selectedWidget],
   );
+  const readyManualVideos = useMemo(
+    () => readyVideosState.videos.filter((video) => video.status === "READY"),
+    [readyVideosState.videos],
+  );
+  const unavailableManualVideos = useMemo(
+    () =>
+      readyVideosState.videos.filter(
+        (video) => video.status !== "READY" && video.status !== "ARCHIVED",
+      ),
+    [readyVideosState.videos],
+  );
   const widgetScriptUrl = useMemo(() => getWidgetScriptUrl(), []);
   const embedSnippet = selectedWidget
     ? `<script src="${widgetScriptUrl}" data-shop="${
@@ -110,7 +122,6 @@ export function WidgetsPage({
     try {
       const result = await loadVideoLibrary({
         first: 50,
-        status: "READY",
         source: "MANUAL_UPLOAD",
       });
 
@@ -462,12 +473,21 @@ export function WidgetsPage({
                     </Text>
                   </InlineStack>
                 ) : null}
-                {readyVideosState.videos.length === 0 && readyVideosState.status !== "loading" ? (
-                  <Text as="p" tone="subdued">
-                    No ready manual upload videos are available to attach.
-                  </Text>
+                {readyManualVideos.length === 0 && readyVideosState.status !== "loading" ? (
+                  <BlockStack gap="200">
+                    <Text as="p" tone="subdued">
+                      No ready manual upload videos are available to attach.
+                    </Text>
+                    <Text as="p" tone="subdued">
+                      Open Videos to retry processing failed uploads or wait for processing to
+                      finish.
+                    </Text>
+                    <InlineStack>
+                      <Button url="/videos">Open Videos</Button>
+                    </InlineStack>
+                  </BlockStack>
                 ) : null}
-                {readyVideosState.videos.map((video) => (
+                {readyManualVideos.map((video) => (
                   <ReadyVideoRow
                     key={video.id}
                     video={video}
@@ -476,6 +496,16 @@ export function WidgetsPage({
                     onAttach={() => void handleAttachVideo(video.id)}
                   />
                 ))}
+                {unavailableManualVideos.length > 0 ? (
+                  <BlockStack gap="300">
+                    <Text as="h4" variant="headingSm">
+                      Uploaded videos not ready yet
+                    </Text>
+                    {unavailableManualVideos.map((video) => (
+                      <UnavailableVideoRow key={video.id} video={video} />
+                    ))}
+                  </BlockStack>
+                ) : null}
               </BlockStack>
             </BlockStack>
           </Card>
@@ -566,6 +596,17 @@ function ReadyVideoRow({
   );
 }
 
+function UnavailableVideoRow({ video }: { video: VideoLibraryItem }) {
+  return (
+    <InlineStack gap="300" align="space-between" blockAlign="center">
+      <VideoSummary video={video} />
+      <Text as="span" tone="subdued">
+        {toUnavailableVideoMessage(video.status)}
+      </Text>
+    </InlineStack>
+  );
+}
+
 function VideoSummary({ video }: { video: VideoLibraryItem }) {
   return (
     <BlockStack gap="050">
@@ -578,6 +619,18 @@ function VideoSummary({ video }: { video: VideoLibraryItem }) {
       </Text>
     </BlockStack>
   );
+}
+
+function toUnavailableVideoMessage(status: VideoLibraryStatus): string {
+  if (status === "FAILED") {
+    return "Retry processing from Videos before attaching.";
+  }
+
+  if (status === "PROCESSING") {
+    return "Processing must finish before attaching.";
+  }
+
+  return "Video must be ready before attaching.";
 }
 
 function formatWidgetDate(value: string): string {

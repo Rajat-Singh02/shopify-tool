@@ -26,6 +26,7 @@ import {
   fetchAdminVideoDetail,
   fetchAdminVideoLibrary,
   formatVideoDuration,
+  retryAdminVideoProcessing,
   VIDEO_LIBRARY_SAFE_ERROR_MESSAGE,
   type VideoArchiveClient,
   type VideoDetailClient,
@@ -34,6 +35,7 @@ import {
   type VideoLibraryResult,
   type VideoLibrarySource,
   type VideoLibraryStatus,
+  type VideoRetryProcessingClient,
 } from "../services/video-library";
 import {
   createVideoProductTag as createAdminVideoProductTag,
@@ -61,6 +63,7 @@ type VideosPageProps = {
   loadVideoLibrary?: VideoLibraryClient;
   loadVideoDetail?: VideoDetailClient;
   archiveVideo?: VideoArchiveClient;
+  retryVideoProcessing?: VideoRetryProcessingClient;
   searchProducts?: ProductSearchClient;
   loadVideoProductTags?: VideoProductTagsClient;
   createVideoProductTag?: CreateVideoProductTagClient;
@@ -94,6 +97,7 @@ export function VideosPage({
   loadVideoLibrary = fetchAdminVideoLibrary,
   loadVideoDetail = fetchAdminVideoDetail,
   archiveVideo = archiveAdminVideo,
+  retryVideoProcessing = retryAdminVideoProcessing,
   searchProducts = fetchAdminProductSearch,
   loadVideoProductTags = fetchVideoProductTags,
   createVideoProductTag = createAdminVideoProductTag,
@@ -115,6 +119,7 @@ export function VideosPage({
   const [selectedVideo, setSelectedVideo] = useState<VideoLibraryItem | null>(null);
   const [detailLoadingId, setDetailLoadingId] = useState<string | null>(null);
   const [archiveLoadingId, setArchiveLoadingId] = useState<string | null>(null);
+  const [retryLoadingId, setRetryLoadingId] = useState<string | null>(null);
   const latestLibraryRequestIdRef = useRef(0);
   const latestDetailRequestIdRef = useRef(0);
   const isUploading =
@@ -125,7 +130,7 @@ export function VideosPage({
   const isLoadingMoreVideos = libraryState.status === "loading-more";
   const libraryResult = libraryState.result;
   const selectedFileError = selectedFile
-    ? validationMessage ?? validateVideoFile(selectedFile)
+    ? (validationMessage ?? validateVideoFile(selectedFile))
     : validationMessage;
 
   const loadVideos = useCallback(
@@ -315,6 +320,40 @@ export function VideosPage({
     }
   }
 
+  async function handleRetryVideoProcessing(video: VideoLibraryItem) {
+    try {
+      setRetryLoadingId(video.id);
+      const retriedVideo = await retryVideoProcessing(video.id);
+
+      replaceLibraryVideo(retriedVideo);
+    } catch {
+      setLibraryState((currentState) => ({
+        status: "error",
+        result: currentState.result,
+        message: VIDEO_LIBRARY_SAFE_ERROR_MESSAGE,
+      }));
+    } finally {
+      setRetryLoadingId(null);
+    }
+  }
+
+  function replaceLibraryVideo(video: VideoLibraryItem) {
+    setSelectedVideo((currentVideo) => (currentVideo?.id === video.id ? video : currentVideo));
+    setLibraryState((currentState) => {
+      const currentResult = currentState.result ?? EMPTY_VIDEO_LIBRARY_RESULT;
+
+      return {
+        status: "ready",
+        result: {
+          ...currentResult,
+          videos: currentResult.videos.map((currentVideo) =>
+            currentVideo.id === video.id ? video : currentVideo,
+          ),
+        },
+      };
+    });
+  }
+
   return (
     <Page title="Videos" subtitle="Upload manual videos for future shoppable placements">
       <BlockStack gap="400">
@@ -325,8 +364,7 @@ export function VideosPage({
                 Manual upload
               </Text>
               <Text as="p" tone="subdued">
-                Add one MP4, MOV, or WebM file. Processing and tagging will be added in later
-                features.
+                Add one MP4, MOV, or WebM file. Ready videos can be tagged and attached to widgets.
               </Text>
             </BlockStack>
 
@@ -384,7 +422,7 @@ export function VideosPage({
 
             {uploadState.status === "success" ? (
               <Banner tone="success" title="Video uploaded">
-                Video {uploadState.video.id} is {uploadState.video.status}.
+                {toUploadSuccessMessage(uploadState.video)}
               </Banner>
             ) : null}
 
@@ -411,8 +449,8 @@ export function VideosPage({
                 Video library
               </Text>
               <Text as="p" tone="subdued">
-                Review uploaded videos and archive items that should no longer appear in the
-                active library.
+                Review uploaded videos and archive items that should no longer appear in the active
+                library.
               </Text>
             </BlockStack>
 
@@ -523,8 +561,10 @@ export function VideosPage({
                 selectedVideo={selectedVideo?.id === video.id ? selectedVideo : null}
                 isLoadingDetail={detailLoadingId === video.id}
                 isArchiving={archiveLoadingId === video.id}
+                isRetrying={retryLoadingId === video.id}
                 onViewDetails={() => void handleLoadVideoDetail(video.id)}
                 onArchive={() => void handleArchiveVideo(video)}
+                onRetryProcessing={() => void handleRetryVideoProcessing(video)}
                 searchProducts={searchProducts}
                 loadVideoProductTags={loadVideoProductTags}
                 createVideoProductTag={createVideoProductTag}
@@ -568,14 +608,32 @@ function toUploadProgressTitle(status: UploadState["status"]): string {
   return "Uploading video";
 }
 
+function toUploadSuccessMessage(video: UploadedVideo): string {
+  if (video.status === "READY") {
+    return `Video ${video.id} is ready. Tag products, then attach it from Widgets.`;
+  }
+
+  if (video.status === "FAILED") {
+    return `Video ${video.id} uploaded, but processing failed. Use Retry processing in the library below.`;
+  }
+
+  if (video.status === "PROCESSING") {
+    return `Video ${video.id} uploaded and is processing. It can be attached to widgets after it is ready.`;
+  }
+
+  return `Video ${video.id} uploaded and is waiting for processing. It can be attached to widgets after it is ready.`;
+}
+
 function VideoLibraryCard({
   video,
   isSelected,
   selectedVideo,
   isLoadingDetail,
   isArchiving,
+  isRetrying,
   onViewDetails,
   onArchive,
+  onRetryProcessing,
   searchProducts,
   loadVideoProductTags,
   createVideoProductTag,
@@ -586,14 +644,18 @@ function VideoLibraryCard({
   selectedVideo: VideoLibraryItem | null;
   isLoadingDetail: boolean;
   isArchiving: boolean;
+  isRetrying: boolean;
   onViewDetails: () => void;
   onArchive: () => void;
+  onRetryProcessing: () => void;
   searchProducts: ProductSearchClient;
   loadVideoProductTags: VideoProductTagsClient;
   createVideoProductTag: CreateVideoProductTagClient;
   deleteVideoProductTag: DeleteVideoProductTagClient;
 }) {
   const displayedVideo = selectedVideo ?? video;
+  const canRetryProcessing =
+    video.source === "MANUAL_UPLOAD" && (video.status === "UPLOADED" || video.status === "FAILED");
 
   return (
     <Card>
@@ -617,6 +679,10 @@ function VideoLibraryCard({
           <Text as="p">Duration: {formatVideoDuration(video.durationMs)}</Text>
           <Text as="p">Dimensions: {formatVideoDimensions(video)}</Text>
         </InlineStack>
+
+        <Text as="p" tone={video.status === "READY" ? "success" : "subdued"}>
+          {toVideoReadinessMessage(video.status)}
+        </Text>
 
         <BlockStack gap="050">
           <Text as="p" tone="subdued">
@@ -660,10 +726,35 @@ function VideoLibraryCard({
           >
             Archive
           </Button>
+          {canRetryProcessing ? (
+            <Button onClick={onRetryProcessing} loading={isRetrying}>
+              Retry processing
+            </Button>
+          ) : null}
         </InlineStack>
       </BlockStack>
     </Card>
   );
+}
+
+function toVideoReadinessMessage(status: VideoLibraryStatus): string {
+  if (status === "READY") {
+    return "Ready videos can be tagged and attached to widgets.";
+  }
+
+  if (status === "FAILED") {
+    return "Processing failed. Retry processing before attaching this video to a widget.";
+  }
+
+  if (status === "PROCESSING") {
+    return "Processing is in progress. This video can be attached after it is ready.";
+  }
+
+  if (status === "ARCHIVED") {
+    return "Archived videos cannot be attached to widgets.";
+  }
+
+  return "This video is uploaded but not ready yet. Retry processing if it stays here.";
 }
 
 type TagState =
@@ -1067,7 +1158,9 @@ function isVariantAlreadyTagged(tags: VideoProductTag[], variantId: string): boo
   return tags.some((tag) => tag.variantId === variantId);
 }
 
-function toVideoStatusTone(status: VideoLibraryStatus): "success" | "info" | "warning" | "critical" {
+function toVideoStatusTone(
+  status: VideoLibraryStatus,
+): "success" | "info" | "warning" | "critical" {
   if (status === "READY") {
     return "success";
   }
