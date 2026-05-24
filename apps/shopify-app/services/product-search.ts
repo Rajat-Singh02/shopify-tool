@@ -64,10 +64,24 @@ export async function fetchAdminProductSearch(
   });
 
   if (!response.ok) {
-    throw new Error(PRODUCT_SEARCH_SAFE_ERROR_MESSAGE);
+    throw new Error(await toProductSearchErrorMessage(response));
   }
 
   return (await response.json()) as ProductSearchResult;
+}
+
+async function toProductSearchErrorMessage(response: Response): Promise<string> {
+  try {
+    const body = (await response.json()) as { message?: unknown };
+
+    if (typeof body.message === "string" && body.message.trim()) {
+      return body.message;
+    }
+  } catch {
+    // Ignore malformed error bodies and keep the safe generic fallback.
+  }
+
+  return PRODUCT_SEARCH_SAFE_ERROR_MESSAGE;
 }
 
 function toProductSearchUrl({ q, first, after }: ProductSearchParams): string {

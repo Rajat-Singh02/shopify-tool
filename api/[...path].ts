@@ -640,6 +640,14 @@ function createShopifyAdminGraphqlClient(session: ProductSearchSession) {
       }
 
       if (!response.ok) {
+        if (response.status === 401 || response.status === 403) {
+          throw new ProductSearchExpectedError(
+            `Shopify Admin API returned HTTP ${response.status}`,
+            410,
+            "Reconnect the app from Shopify admin, then try product search again.",
+          );
+        }
+
         throw new ProductSearchExpectedError(
           `Shopify Admin API returned HTTP ${response.status}`,
           502,

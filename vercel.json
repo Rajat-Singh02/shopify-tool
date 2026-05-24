@@ -22,6 +22,30 @@
       "destination": "/api/widget"
     },
     {
+      "source": "/products",
+      "destination": "/"
+    },
+    {
+      "source": "/products/:path*",
+      "destination": "/"
+    },
+    {
+      "source": "/videos",
+      "destination": "/"
+    },
+    {
+      "source": "/videos/:path*",
+      "destination": "/"
+    },
+    {
+      "source": "/widgets",
+      "destination": "/"
+    },
+    {
+      "source": "/widgets/:path*",
+      "destination": "/"
+    },
+    {
       "source": "/api/admin/dashboard",
       "destination": "/api/admin-dashboard"
     },
