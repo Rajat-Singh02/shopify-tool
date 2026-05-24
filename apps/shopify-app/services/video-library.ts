@@ -1,7 +1,4 @@
-import {
-  getShopifyIdToken,
-  type AdminDashboardTokenProvider,
-} from "./admin-shell";
+import { getShopifyIdToken, type AdminDashboardTokenProvider } from "./admin-shell";
 
 export const ADMIN_VIDEO_LIBRARY_PATH = "/api/admin/videos";
 export const VIDEO_LIBRARY_SAFE_ERROR_MESSAGE =
@@ -43,6 +40,7 @@ export type VideoLibraryParams = {
 export type VideoLibraryClient = (params: VideoLibraryParams) => Promise<VideoLibraryResult>;
 export type VideoDetailClient = (videoId: string) => Promise<VideoLibraryItem>;
 export type VideoArchiveClient = (videoId: string) => Promise<VideoLibraryItem>;
+export type VideoRetryProcessingClient = (videoId: string) => Promise<VideoLibraryItem>;
 
 export async function fetchAdminVideoLibrary(
   params: VideoLibraryParams,
@@ -73,7 +71,7 @@ export async function fetchAdminVideoDetail(
     throw new Error(VIDEO_LIBRARY_SAFE_ERROR_MESSAGE);
   }
 
-  return (await response.json()) as VideoLibraryItem;
+  return parseVideoItemResponse(await response.json());
 }
 
 export async function archiveAdminVideo(
@@ -93,7 +91,35 @@ export async function archiveAdminVideo(
     throw new Error(VIDEO_LIBRARY_SAFE_ERROR_MESSAGE);
   }
 
-  return (await response.json()) as VideoLibraryItem;
+  return parseVideoItemResponse(await response.json());
+}
+
+export async function retryAdminVideoProcessing(
+  videoId: string,
+  fetcher: typeof fetch = fetch,
+  tokenProvider: AdminDashboardTokenProvider = getShopifyIdToken,
+): Promise<VideoLibraryItem> {
+  const response = await fetcher(
+    `${ADMIN_VIDEO_LIBRARY_PATH}/${encodeURIComponent(videoId)}/retry-processing`,
+    {
+      method: "POST",
+      headers: await createVideoLibraryHeaders(tokenProvider),
+    },
+  );
+
+  if (!response.ok) {
+    throw new Error(VIDEO_LIBRARY_SAFE_ERROR_MESSAGE);
+  }
+
+  return parseVideoItemResponse(await response.json());
+}
+
+function parseVideoItemResponse(payload: unknown): VideoLibraryItem {
+  if (payload && typeof payload === "object" && "video" in payload) {
+    return (payload as { video: VideoLibraryItem }).video;
+  }
+
+  return payload as VideoLibraryItem;
 }
 
 export function formatVideoDuration(durationMs: number | null): string {

@@ -27,6 +27,7 @@ import type {
   VideoArchiveClient,
   VideoDetailClient,
   VideoLibraryClient,
+  VideoRetryProcessingClient,
 } from "../services/video-library";
 import type {
   CreateVideoProductTagClient,
@@ -42,6 +43,7 @@ type AppProps = {
   loadVideoLibrary?: VideoLibraryClient;
   loadVideoDetail?: VideoDetailClient;
   archiveVideo?: VideoArchiveClient;
+  retryVideoProcessing?: VideoRetryProcessingClient;
   loadVideoProductTags?: VideoProductTagsClient;
   createVideoProductTag?: CreateVideoProductTagClient;
   deleteVideoProductTag?: DeleteVideoProductTagClient;
@@ -61,6 +63,7 @@ export function App({
   loadVideoLibrary,
   loadVideoDetail,
   archiveVideo,
+  retryVideoProcessing,
   loadVideoProductTags,
   createVideoProductTag,
   deleteVideoProductTag,
@@ -117,6 +120,7 @@ export function App({
                 loadVideoLibrary={loadVideoLibrary}
                 loadVideoDetail={loadVideoDetail}
                 archiveVideo={archiveVideo}
+                retryVideoProcessing={retryVideoProcessing}
                 searchProducts={searchProducts}
                 loadVideoProductTags={loadVideoProductTags}
                 createVideoProductTag={createVideoProductTag}

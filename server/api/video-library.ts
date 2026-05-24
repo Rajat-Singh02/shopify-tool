@@ -6,7 +6,7 @@ import type {
   VideoStatus,
 } from "@shoppable-video/db";
 
-import type { VideoUploadShop } from "./video-upload.js";
+import type { VideoProcessingDispatcher, VideoUploadShop } from "./video-upload.js";
 
 const DEFAULT_PAGE_SIZE = 20;
 const MAX_PAGE_SIZE = 50;
@@ -116,6 +116,77 @@ export async function archiveVideoLibraryItem({
   return toSafeVideoLibraryDto(video);
 }
 
+export async function retryVideoLibraryProcessing({
+  shop,
+  videoId,
+  videoRepository,
+  processingDispatcher,
+}: {
+  shop: VideoUploadShop;
+  videoId: string;
+  videoRepository: Pick<VideoRepository, "findByShop" | "findById" | "markOriginalUploadComplete">;
+  processingDispatcher: VideoProcessingDispatcher;
+}): Promise<SafeVideoLibraryDto> {
+  const video = await videoRepository.findByShop(shop.id, validateVideoId(videoId));
+
+  if (!video) {
+    throw new VideoLibraryExpectedError("Video was not found", 404);
+  }
+
+  if (video.source !== "MANUAL_UPLOAD") {
+    throw new VideoLibraryExpectedError(
+      "Only manual upload videos can be retried",
+      409,
+      "Only manual upload videos can be retried.",
+    );
+  }
+
+  if (video.status !== "UPLOADED" && video.status !== "FAILED") {
+    throw new VideoLibraryExpectedError(
+      "Only uploaded or failed videos can be retried",
+      409,
+      "Only uploaded or failed videos can be retried.",
+    );
+  }
+
+  if (!video.storageKeyOriginal) {
+    throw new VideoLibraryExpectedError(
+      "Video upload object is unavailable",
+      409,
+      "Upload this video again before retrying processing.",
+    );
+  }
+
+  const retryableVideo =
+    video.status === "FAILED" ? await videoRepository.markOriginalUploadComplete(video) : video;
+
+  try {
+    await processingDispatcher.dispatchVideoProcessingJob({
+      videoId: retryableVideo.id,
+    });
+  } catch {
+    const latestFailedVideo = await videoRepository.findById(retryableVideo.id);
+
+    if (latestFailedVideo) {
+      return toSafeVideoLibraryDto(latestFailedVideo);
+    }
+
+    throw new VideoLibraryExpectedError(
+      "Video processing retry failed",
+      500,
+      "We could not retry video processing. Try again.",
+    );
+  }
+
+  const processedVideo = await videoRepository.findById(retryableVideo.id);
+
+  if (!processedVideo) {
+    throw new VideoLibraryExpectedError("Video was not found", 404);
+  }
+
+  return toSafeVideoLibraryDto(processedVideo);
+}
+
 export function toSafeVideoLibraryDto(video: VideoRecord): SafeVideoLibraryDto {
   return {
     id: video.id,
@@ -135,10 +206,7 @@ export function toSafeVideoLibraryDto(video: VideoRecord): SafeVideoLibraryDto {
   };
 }
 
-function parseVideoLibraryListInput(
-  shopId: string,
-  query: VideoLibraryListQuery,
-): ListVideosInput {
+function parseVideoLibraryListInput(shopId: string, query: VideoLibraryListQuery): ListVideosInput {
   const first = parseFirst(query.first);
   const after = parseCursor(query.after);
   const status = parseStatus(query.status);
