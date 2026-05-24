@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   ADMIN_PRODUCT_SEARCH_PATH,
   fetchAdminProductSearch,
+  PRODUCT_SEARCH_RECONNECT_MESSAGE,
   PRODUCT_SEARCH_SAFE_ERROR_MESSAGE,
 } from "../services/product-search";
 
@@ -86,7 +87,7 @@ describe("fetchAdminProductSearch", () => {
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
       Response.json(
         {
-          message: "Reconnect the app from Shopify admin, then try product search again.",
+          message: PRODUCT_SEARCH_RECONNECT_MESSAGE,
         },
         {
           status: 410,
@@ -95,7 +96,7 @@ describe("fetchAdminProductSearch", () => {
     );
 
     await expect(fetchAdminProductSearch({}, fetcher)).rejects.toThrow(
-      "Reconnect the app from Shopify admin, then try product search again.",
+      PRODUCT_SEARCH_RECONNECT_MESSAGE,
     );
   });
 });

@@ -8,7 +8,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { App } from "../app/App";
 import { ADMIN_SHELL_SAFE_ERROR_MESSAGE } from "../services/admin-shell";
 import type { AdminWidget } from "../services/admin-widgets";
-import { PRODUCT_SEARCH_SAFE_ERROR_MESSAGE } from "../services/product-search";
+import {
+  PRODUCT_SEARCH_RECONNECT_MESSAGE,
+  PRODUCT_SEARCH_SAFE_ERROR_MESSAGE,
+} from "../services/product-search";
 import {
   VIDEO_LIBRARY_SAFE_ERROR_MESSAGE,
   type VideoLibraryItem,
@@ -232,6 +235,27 @@ describe("admin app shell", () => {
     });
     expect(screen.getByText(PRODUCT_SEARCH_SAFE_ERROR_MESSAGE)).toBeInTheDocument();
     expect(document.body.textContent).not.toContain("raw backend failure");
+  });
+
+  it("renders product search reconnect errors from the server", async () => {
+    renderApp(
+      <App
+        initialDashboardState={readyDashboardState}
+        searchProducts={() =>
+          Promise.reject(new Error(PRODUCT_SEARCH_RECONNECT_MESSAGE))
+        }
+      />,
+      ["/products"],
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Search" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Product search unavailable")).toBeInTheDocument();
+    });
+    expect(
+      screen.getByText(PRODUCT_SEARCH_RECONNECT_MESSAGE),
+    ).toBeInTheDocument();
   });
 
   it("loads more product search results with the returned cursor", async () => {

@@ -17,6 +17,7 @@ import { useCallback, useRef, useState } from "react";
 import {
   fetchAdminProductSearch,
   PRODUCT_SEARCH_SAFE_ERROR_MESSAGE,
+  PRODUCT_SEARCH_RECONNECT_MESSAGE,
   type ProductSearchClient,
   type ProductSearchProduct,
   type ProductSearchResult,
@@ -84,7 +85,7 @@ export function ProductsPage({ searchProducts = fetchAdminProductSearch }: Produ
                 }
               : nextResult,
         });
-      } catch {
+      } catch (error) {
         if (latestRequestIdRef.current !== requestId) {
           return;
         }
@@ -92,7 +93,7 @@ export function ProductsPage({ searchProducts = fetchAdminProductSearch }: Produ
         setState({
           status: "error",
           result: previousResult,
-          message: PRODUCT_SEARCH_SAFE_ERROR_MESSAGE,
+          message: toSafeProductSearchErrorMessage(error),
         });
       }
     },
@@ -187,6 +188,14 @@ export function ProductsPage({ searchProducts = fetchAdminProductSearch }: Produ
       </BlockStack>
     </Page>
   );
+}
+
+function toSafeProductSearchErrorMessage(error: unknown): string {
+  if (error instanceof Error && error.message === PRODUCT_SEARCH_RECONNECT_MESSAGE) {
+    return error.message;
+  }
+
+  return PRODUCT_SEARCH_SAFE_ERROR_MESSAGE;
 }
 
 function ProductSearchResultCard({ product }: { product: ProductSearchProduct }) {
