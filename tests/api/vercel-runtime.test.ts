@@ -1499,6 +1499,77 @@ describe("Vercel runtime route surface", () => {
     consoleError.mockRestore();
   });
 
+  it("refreshes offline Shopify sessions from the App Bridge token after Shopify rejects a stored token", async () => {
+    vi.stubEnv("SHOPIFY_API_KEY", "test_api_key");
+    vi.stubEnv("SHOPIFY_API_SECRET", "test_secret");
+    vi.stubEnv("SHOPIFY_APP_URL", "https://app.example.test");
+    vi.stubEnv("SHOPIFY_SCOPES", "read_products");
+    vi.stubEnv("SHOPIFY_API_VERSION", "2026-04");
+    const token = createTestSessionToken("test-shop.myshopify.com", "test_api_key", "test_secret");
+    const fetch = vi
+      .fn<typeof globalThis.fetch>()
+      .mockResolvedValueOnce(
+        Response.json(
+          {
+            errors: [{ message: "invalid stale-token" }],
+          },
+          { status: 401 },
+        ),
+      )
+      .mockResolvedValueOnce(
+        Response.json({
+          data: {
+            products: {
+              edges: [],
+              pageInfo: {
+                hasNextPage: false,
+                endCursor: null,
+              },
+            },
+          },
+        }),
+      );
+    vi.stubGlobal("fetch", fetch);
+    const refreshProductSearchSessions = vi.fn().mockResolvedValue([
+      {
+        shop: "test-shop.myshopify.com",
+        accessToken: "fresh-token",
+      },
+    ]);
+    const response = await handleVercelRuntimeRequest(
+      new Request("https://app.example.test/api/admin/products/search?q=shirt", {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      }),
+      {
+        authenticateAdmin() {
+          throw new Error("offline session unavailable");
+        },
+        loadProductSearchSessions() {
+          return Promise.resolve([
+            {
+              shop: "test-shop.myshopify.com",
+              accessToken: "stale-token",
+            },
+          ]);
+        },
+        refreshProductSearchSessions,
+      },
+    );
+    const body = (await response.json()) as {
+      products: unknown[];
+    };
+
+    expect(response.status).toBe(200);
+    expect(body.products).toEqual([]);
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(refreshProductSearchSessions).toHaveBeenCalledWith(
+      expect.any(Request),
+      "test-shop.myshopify.com",
+    );
+  });
+
   it("resolves dashboard shop context from a valid App Bridge bearer token", async () => {
     vi.stubEnv("SHOPIFY_API_KEY", "test_api_key");
     vi.stubEnv("SHOPIFY_API_SECRET", "test_secret");
