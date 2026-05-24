@@ -102,6 +102,8 @@ type ProductSearchSession = {
   accessToken: string;
 };
 
+type SerializedShopifySessionProperty = [string, string | number | boolean];
+
 type ProductSearchInput = {
   q?: string | null;
   first?: number | null;
@@ -155,6 +157,7 @@ type RuntimeDependencies = {
   loadDashboardShop?: (shopDomain: string) => Promise<DashboardShopRecord>;
   loadVideoUploadShop?: (shopDomain: string) => Promise<VideoUploadShop>;
   loadProductSearchSession?: (shopDomain: string) => Promise<ProductSearchSession | undefined>;
+  loadProductSearchSessions?: (shopDomain: string) => Promise<ProductSearchSession[]>;
   searchProducts?: (
     session: ProductSearchSession,
     input: ProductSearchInput,
@@ -480,6 +483,7 @@ async function handleProductSearchRequest(
     authenticateAdmin,
     handleProductSearch,
     loadProductSearchSession,
+    loadProductSearchSessions,
     searchProducts,
   }: RuntimeDependencies,
 ): Promise<Response> {
@@ -500,18 +504,20 @@ async function handleProductSearchRequest(
   try {
     const authResult = await authenticateDashboardRequest(request, authenticateAdmin);
     authenticated = true;
-    const session = loadProductSearchSession
-      ? await loadProductSearchSession(authResult.session.shop)
-      : await loadProductSearchSessionFromDatabase(authResult.session.shop);
+    const sessions = await loadProductSearchSessionsForShop(authResult.session.shop, {
+      loadProductSearchSession,
+      loadProductSearchSessions,
+    });
 
-    if (!session) {
-      return productSearchFailureResponse(410);
+    if (sessions.length === 0) {
+      return productSearchFailureResponse(
+        410,
+        "Reconnect the app from Shopify admin, then try product search again.",
+      );
     }
 
     const input = parseProductSearchRequestInput(request);
-    const result = searchProducts
-      ? await searchProducts(session, input)
-      : await searchProductsWithShopifyAdmin(session, input);
+    const result = await searchProductsWithAvailableSession(sessions, input, searchProducts);
 
     return Response.json(result, {
       headers: {
@@ -536,6 +542,59 @@ async function handleProductSearchRequest(
 
     return productSearchFailureResponse(status >= 400 && status < 500 ? status : 500);
   }
+}
+
+async function loadProductSearchSessionsForShop(
+  shopDomain: string,
+  {
+    loadProductSearchSession,
+    loadProductSearchSessions,
+  }: Pick<RuntimeDependencies, "loadProductSearchSession" | "loadProductSearchSessions">,
+): Promise<ProductSearchSession[]> {
+  if (loadProductSearchSessions) {
+    return loadProductSearchSessions(shopDomain);
+  }
+
+  if (loadProductSearchSession) {
+    const session = await loadProductSearchSession(shopDomain);
+
+    return session ? [session] : [];
+  }
+
+  return loadProductSearchSessionsFromDatabase(shopDomain);
+}
+
+async function searchProductsWithAvailableSession(
+  sessions: ProductSearchSession[],
+  input: ProductSearchInput,
+  searchProducts?: RuntimeDependencies["searchProducts"],
+): Promise<ProductSearchResponse> {
+  let lastRejectedTokenError: ProductSearchExpectedError | undefined;
+
+  for (const session of sessions) {
+    try {
+      return searchProducts
+        ? await searchProducts(session, input)
+        : await searchProductsWithShopifyAdmin(session, input);
+    } catch (error) {
+      if (isOfflineTokenRejectedError(error)) {
+        lastRejectedTokenError = error;
+        continue;
+      }
+
+      throw error;
+    }
+  }
+
+  if (lastRejectedTokenError) {
+    throw lastRejectedTokenError;
+  }
+
+  throw new ProductSearchExpectedError(
+    "No Shopify offline product search session was available",
+    410,
+    "Reconnect the app from Shopify admin, then try product search again.",
+  );
 }
 
 function parseProductSearchRequestInput(request: Request): ProductSearchInput {
@@ -585,24 +644,74 @@ function sanitizeProductSearchQuery(query: string | null): string | null {
   return safeTerms.length > 0 ? safeTerms : null;
 }
 
-async function loadProductSearchSessionFromDatabase(
+async function loadProductSearchSessionsFromDatabase(
   shopDomain: string,
-): Promise<ProductSearchSession | undefined> {
-  const { getPrismaClient, PrismaShopifySessionStorage } = await import("@shoppable-video/db");
-  const sessionStorage = new PrismaShopifySessionStorage(getPrismaClient());
-  const sessions = await sessionStorage.findSessionsByShop(shopDomain);
-  const offlineSession = sessions.find(
-    (session) => !session.isOnline && typeof session.accessToken === "string",
-  );
+): Promise<ProductSearchSession[]> {
+  const { Session } = await import("@shopify/shopify-api");
+  const { getPrismaClient } = await import("@shoppable-video/db");
+  const records = await getPrismaClient().shopifySession.findMany({
+    where: { shop: shopDomain },
+    orderBy: { updatedAt: "desc" },
+  });
 
-  if (!offlineSession?.accessToken) {
-    return undefined;
+  return records.flatMap((record) => {
+    try {
+      const serializedSession = parseSerializedShopifySession(record.payload);
+
+      if (!serializedSession) {
+        return [];
+      }
+
+      const session = Session.fromPropertyArray(serializedSession, true);
+
+      if (session.isOnline || typeof session.accessToken !== "string" || !session.accessToken) {
+        return [];
+      }
+
+      return [
+        {
+          shop: session.shop,
+          accessToken: session.accessToken,
+        },
+      ];
+    } catch {
+      return [];
+    }
+  });
+}
+
+function parseSerializedShopifySession(
+  payload: string,
+): SerializedShopifySessionProperty[] | null {
+  try {
+    const parsed: unknown = JSON.parse(payload);
+
+    if (!Array.isArray(parsed)) {
+      return null;
+    }
+
+    const properties: SerializedShopifySessionProperty[] = [];
+    for (const item of parsed) {
+      if (
+        !Array.isArray(item) ||
+        item.length !== 2 ||
+        typeof item[0] !== "string" ||
+        !isSerializedShopifySessionValue(item[1])
+      ) {
+        return null;
+      }
+
+      properties.push([item[0], item[1]]);
+    }
+
+    return properties;
+  } catch {
+    return null;
   }
+}
 
-  return {
-    shop: offlineSession.shop,
-    accessToken: offlineSession.accessToken,
-  };
+function isSerializedShopifySessionValue(value: unknown): value is string | number | boolean {
+  return typeof value === "string" || typeof value === "number" || typeof value === "boolean";
 }
 
 async function searchProductsWithShopifyAdmin(
@@ -682,6 +791,14 @@ class ProductSearchExpectedError extends Error {
     super(message);
     this.name = "ProductSearchExpectedError";
   }
+}
+
+function isOfflineTokenRejectedError(error: unknown): error is ProductSearchExpectedError {
+  return (
+    error instanceof ProductSearchExpectedError &&
+    error.status === 410 &&
+    /Shopify Admin API returned HTTP (401|403)/.test(error.message)
+  );
 }
 
 function logProductSearchError(error: unknown): void {

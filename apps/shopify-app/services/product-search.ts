@@ -6,6 +6,8 @@ import {
 export const ADMIN_PRODUCT_SEARCH_PATH = "/api/admin/products/search";
 export const PRODUCT_SEARCH_SAFE_ERROR_MESSAGE =
   "We could not search Shopify products. Reload the app from Shopify admin.";
+export const PRODUCT_SEARCH_RECONNECT_MESSAGE =
+  "Reconnect the app from Shopify admin, then try product search again.";
 
 export type ProductSearchImage = {
   url: string;
@@ -74,7 +76,7 @@ async function toProductSearchErrorMessage(response: Response): Promise<string> 
   try {
     const body = (await response.json()) as { message?: unknown };
 
-    if (typeof body.message === "string" && body.message.trim()) {
+    if (body.message === PRODUCT_SEARCH_RECONNECT_MESSAGE) {
       return body.message;
     }
   } catch {
