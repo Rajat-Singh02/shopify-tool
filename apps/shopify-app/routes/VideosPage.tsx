@@ -254,20 +254,22 @@ export function VideosPage({
     setUploadState({ status: "idle" });
   }
 
-  async function handleLoadVideoDetail(videoId: string) {
+  async function handleLoadVideoDetail(video: VideoLibraryItem) {
+    const videoId = video.id;
     const requestId = latestDetailRequestIdRef.current + 1;
 
     latestDetailRequestIdRef.current = requestId;
+    setSelectedVideo(video);
 
     try {
       setDetailLoadingId(videoId);
-      const video = await loadVideoDetail(videoId);
+      const detailedVideo = await loadVideoDetail(videoId);
 
       if (latestDetailRequestIdRef.current !== requestId) {
         return;
       }
 
-      setSelectedVideo(video);
+      replaceLibraryVideo(detailedVideo);
     } catch {
       if (latestDetailRequestIdRef.current !== requestId) {
         return;
@@ -562,7 +564,7 @@ export function VideosPage({
                 isLoadingDetail={detailLoadingId === video.id}
                 isArchiving={archiveLoadingId === video.id}
                 isRetrying={retryLoadingId === video.id}
-                onViewDetails={() => void handleLoadVideoDetail(video.id)}
+                onViewDetails={() => void handleLoadVideoDetail(video)}
                 onArchive={() => void handleArchiveVideo(video)}
                 onRetryProcessing={() => void handleRetryVideoProcessing(video)}
                 searchProducts={searchProducts}
@@ -703,14 +705,20 @@ function VideoLibraryCard({
             <Text as="p">Source: {displayedVideo.source}</Text>
             <Text as="p">Duration: {formatVideoDuration(displayedVideo.durationMs)}</Text>
             <Text as="p">Dimensions: {formatVideoDimensions(displayedVideo)}</Text>
-            <VideoProductTaggingPanel
-              key={displayedVideo.id}
-              video={displayedVideo}
-              searchProducts={searchProducts}
-              loadVideoProductTags={loadVideoProductTags}
-              createVideoProductTag={createVideoProductTag}
-              deleteVideoProductTag={deleteVideoProductTag}
-            />
+            {canShowProductTagging(displayedVideo.status) ? (
+              <VideoProductTaggingPanel
+                key={displayedVideo.id}
+                video={displayedVideo}
+                searchProducts={searchProducts}
+                loadVideoProductTags={loadVideoProductTags}
+                createVideoProductTag={createVideoProductTag}
+                deleteVideoProductTag={deleteVideoProductTag}
+              />
+            ) : (
+              <Banner tone="info" title="Video not ready for product tags">
+                {toVideoReadinessMessage(displayedVideo.status)}
+              </Banner>
+            )}
           </BlockStack>
         ) : null}
 
@@ -735,6 +743,10 @@ function VideoLibraryCard({
       </BlockStack>
     </Card>
   );
+}
+
+function canShowProductTagging(status: VideoLibraryStatus): boolean {
+  return status === "READY" || status === "ARCHIVED";
 }
 
 function toVideoReadinessMessage(status: VideoLibraryStatus): string {
