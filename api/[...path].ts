@@ -678,10 +678,13 @@ class ProductSearchExpectedError extends Error {
 
 function logProductSearchError(error: unknown): void {
   const reason = error instanceof Error ? error.name : "UnknownProductSearchError";
+  const detail =
+    error instanceof ProductSearchExpectedError ? error.message : "Unexpected product search error";
 
   console.error("Failed to search Shopify products", {
     operation: "products.search",
     reason,
+    detail,
   });
 }
 
