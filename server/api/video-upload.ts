@@ -255,7 +255,9 @@ export async function completeManualUpload({
   processingDispatcher,
 }: {
   video: VideoRecord;
-  videoRepository: Pick<VideoRepository, "markOriginalUploadComplete">;
+  videoRepository: Pick<VideoRepository, "markOriginalUploadComplete"> & {
+    findById?: (videoId: string) => Promise<VideoRecord | null>;
+  };
   storageProvider: StorageProvider;
   processingDispatcher?: VideoProcessingDispatcher;
 }): Promise<SafeVideoDto> {
@@ -289,16 +291,14 @@ export async function completeManualUpload({
     return await processingDispatcher.dispatchVideoProcessingJob({
       videoId: completedVideo.id,
     });
-  } catch (error) {
-    if (error instanceof VideoUploadExpectedError) {
-      throw error;
+  } catch {
+    const latestVideo = await videoRepository.findById?.(completedVideo.id);
+
+    if (latestVideo) {
+      return toSafeVideoDto(latestVideo);
     }
 
-    throw new VideoUploadExpectedError(
-      "Video processing could not be started",
-      500,
-      "We could not start video processing. Try completing the upload again.",
-    );
+    return toSafeVideoDto(completedVideo);
   }
 }
 
