@@ -158,6 +158,10 @@ type RuntimeDependencies = {
   loadVideoUploadShop?: (shopDomain: string) => Promise<VideoUploadShop>;
   loadProductSearchSession?: (shopDomain: string) => Promise<ProductSearchSession | undefined>;
   loadProductSearchSessions?: (shopDomain: string) => Promise<ProductSearchSession[]>;
+  refreshProductSearchSessions?: (
+    request: Request,
+    shopDomain: string,
+  ) => Promise<ProductSearchSession[]>;
   searchProducts?: (
     session: ProductSearchSession,
     input: ProductSearchInput,
@@ -484,6 +488,7 @@ async function handleProductSearchRequest(
     handleProductSearch,
     loadProductSearchSession,
     loadProductSearchSessions,
+    refreshProductSearchSessions,
     searchProducts,
   }: RuntimeDependencies,
 ): Promise<Response> {
@@ -504,7 +509,8 @@ async function handleProductSearchRequest(
   try {
     const authResult = await authenticateDashboardRequest(request, authenticateAdmin);
     authenticated = true;
-    const sessions = await loadProductSearchSessionsForShop(authResult.session.shop, {
+    const shopDomain = authResult.session.shop;
+    const sessions = await loadProductSearchSessionsForShop(shopDomain, {
       loadProductSearchSession,
       loadProductSearchSessions,
     });
@@ -517,7 +523,25 @@ async function handleProductSearchRequest(
     }
 
     const input = parseProductSearchRequestInput(request);
-    const result = await searchProductsWithAvailableSession(sessions, input, searchProducts);
+    let result: ProductSearchResponse;
+
+    try {
+      result = await searchProductsWithAvailableSession(sessions, input, searchProducts);
+    } catch (error) {
+      if (!isOfflineTokenRejectedError(error)) {
+        throw error;
+      }
+
+      const refreshedSessions = await refreshProductSearchSessionsForShop(request, shopDomain, {
+        refreshProductSearchSessions,
+      });
+
+      if (refreshedSessions.length === 0) {
+        throw error;
+      }
+
+      result = await searchProductsWithAvailableSession(refreshedSessions, input, searchProducts);
+    }
 
     return Response.json(result, {
       headers: {
@@ -595,6 +619,27 @@ async function searchProductsWithAvailableSession(
     410,
     "Reconnect the app from Shopify admin, then try product search again.",
   );
+}
+
+async function refreshProductSearchSessionsForShop(
+  request: Request,
+  shopDomain: string,
+  {
+    refreshProductSearchSessions,
+  }: Pick<RuntimeDependencies, "refreshProductSearchSessions">,
+): Promise<ProductSearchSession[]> {
+  if (refreshProductSearchSessions) {
+    return refreshProductSearchSessions(request, shopDomain);
+  }
+
+  try {
+    await deleteOfflineProductSearchSessionsFromDatabase(shopDomain);
+    await authenticateShopifyAdmin(request);
+
+    return loadProductSearchSessionsFromDatabase(shopDomain);
+  } catch {
+    return [];
+  }
 }
 
 function parseProductSearchRequestInput(request: Request): ProductSearchInput {
@@ -677,6 +722,17 @@ async function loadProductSearchSessionsFromDatabase(
     } catch {
       return [];
     }
+  });
+}
+
+async function deleteOfflineProductSearchSessionsFromDatabase(shopDomain: string): Promise<void> {
+  const { getPrismaClient } = await import("@shoppable-video/db");
+
+  await getPrismaClient().shopifySession.deleteMany({
+    where: {
+      shop: shopDomain,
+      isOnline: false,
+    },
   });
 }
 
