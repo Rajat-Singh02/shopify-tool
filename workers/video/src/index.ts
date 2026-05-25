@@ -72,6 +72,18 @@ export function getVideoWorkerHealth(): VideoWorkerHealth {
   };
 }
 
+export function createUnknownVideoMetadata(): VideoMetadata {
+  return {
+    durationSeconds: null,
+    durationMs: null,
+    width: null,
+    height: null,
+    formatName: null,
+    videoCodec: null,
+    bitrate: null,
+  };
+}
+
 export async function processVideoJob(
   job: VideoProcessingJob,
   {
@@ -263,25 +275,33 @@ async function defaultRunFfprobe(
   filePath: string,
   { ffprobePath, timeoutMs }: { ffprobePath: string; timeoutMs: number },
 ): Promise<string> {
-  const { stdout } = await execFile(
-    ffprobePath,
-    [
-      "-v",
-      "error",
-      "-print_format",
-      "json",
-      "-show_format",
-      "-show_streams",
-      "--",
-      filePath,
-    ],
-    {
-      timeout: timeoutMs,
-      maxBuffer: 1024 * 1024,
-    },
-  );
+  try {
+    const { stdout } = await execFile(
+      ffprobePath,
+      [
+        "-v",
+        "error",
+        "-print_format",
+        "json",
+        "-show_format",
+        "-show_streams",
+        "--",
+        filePath,
+      ],
+      {
+        timeout: timeoutMs,
+        maxBuffer: 1024 * 1024,
+      },
+    );
 
-  return stdout;
+    return stdout;
+  } catch (error) {
+    if (isFfprobeUnavailableError(error)) {
+      throw new VideoProcessingExpectedError("ffprobe is unavailable", "FFPROBE_UNAVAILABLE");
+    }
+
+    throw new VideoProcessingExpectedError("ffprobe failed", "FFPROBE_FAILED");
+  }
 }
 
 function assertSafeStorageKey(key: string): void {
@@ -322,4 +342,14 @@ function toSafeProcessingFailureReason(error: unknown): string {
   }
 
   return "VIDEO_PROCESSING_FAILED";
+}
+
+function isFfprobeUnavailableError(error: unknown): boolean {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+
+  const code = (error as { code?: unknown }).code;
+
+  return code === "ENOENT" || code === "EACCES" || code === "ENOEXEC";
 }

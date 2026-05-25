@@ -1,13 +1,13 @@
 {
   "files": [],
   "references": [
-    { "path": "api" },
-    { "path": "apps/shopify-app" },
     { "path": "packages/db" },
     { "path": "packages/shared" },
     { "path": "packages/shopify" },
     { "path": "packages/widget" },
     { "path": "packages/testing" },
-    { "path": "workers/video" }
+    { "path": "workers/video" },
+    { "path": "api" },
+    { "path": "apps/shopify-app" }
   ]
 }
