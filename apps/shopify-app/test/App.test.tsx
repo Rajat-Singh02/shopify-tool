@@ -951,11 +951,6 @@ describe("admin app shell", () => {
     });
     const deleteVideoProductTag = vi.fn().mockResolvedValue({ deleted: true });
 
-    vi.stubGlobal(
-      "confirm",
-      vi.fn(() => true),
-    );
-
     renderApp(
       <App
         initialDashboardState={readyDashboardState}
@@ -986,6 +981,18 @@ describe("admin app shell", () => {
     });
 
     fireEvent.click(screen.getByRole("button", { name: "Remove tag" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Remove product tag?")).toBeInTheDocument();
+    });
+    const removeTagButtons = screen.getAllByRole("button", { name: "Remove tag" });
+    const modalRemoveButton = removeTagButtons[removeTagButtons.length - 1];
+
+    if (!modalRemoveButton) {
+      throw new Error("Expected modal remove tag button");
+    }
+
+    fireEvent.click(modalRemoveButton);
 
     await waitFor(() => {
       expect(deleteVideoProductTag).toHaveBeenCalledWith("video_1", "tag_1");

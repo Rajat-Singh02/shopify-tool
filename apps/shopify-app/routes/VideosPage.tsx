@@ -6,6 +6,7 @@ import {
   Card,
   EmptyState,
   InlineStack,
+  Modal,
   Page,
   Spinner,
   Text,
@@ -804,6 +805,7 @@ function VideoProductTaggingPanel({
   });
   const [taggingVariantId, setTaggingVariantId] = useState<string | null>(null);
   const [removingTagId, setRemovingTagId] = useState<string | null>(null);
+  const [tagPendingRemoval, setTagPendingRemoval] = useState<VideoProductTag | null>(null);
   const latestTagRequestIdRef = useRef(0);
   const latestProductSearchRequestIdRef = useRef(0);
   const tags = tagState.result?.tags ?? [];
@@ -949,10 +951,6 @@ function VideoProductTaggingPanel({
   }
 
   async function removeTag(tag: VideoProductTag) {
-    if (!window.confirm(`Remove ${tag.productTitle} from this video?`)) {
-      return;
-    }
-
     try {
       setRemovingTagId(tag.id);
       await deleteVideoProductTag(video.id, tag.id);
@@ -962,12 +960,14 @@ function VideoProductTaggingPanel({
           tags: (currentState.result?.tags ?? []).filter((currentTag) => currentTag.id !== tag.id),
         },
       }));
+      setTagPendingRemoval(null);
     } catch {
       setTagState((currentState) => ({
         status: "error",
         result: currentState.result,
         message: VIDEO_PRODUCT_TAGS_SAFE_ERROR_MESSAGE,
       }));
+      setTagPendingRemoval(null);
     } finally {
       setRemovingTagId(null);
     }
@@ -1024,7 +1024,7 @@ function VideoProductTaggingPanel({
                 </Text>
               </BlockStack>
               <Button
-                onClick={() => void removeTag(tag)}
+                onClick={() => setTagPendingRemoval(tag)}
                 loading={removingTagId === tag.id}
                 disabled={removingTagId !== null}
               >
@@ -1034,6 +1034,40 @@ function VideoProductTaggingPanel({
           ))}
         </BlockStack>
       ) : null}
+
+      <Modal
+        open={tagPendingRemoval !== null}
+        onClose={() => {
+          if (removingTagId === null) {
+            setTagPendingRemoval(null);
+          }
+        }}
+        title="Remove product tag?"
+        primaryAction={{
+          content: "Remove tag",
+          destructive: true,
+          loading: tagPendingRemoval !== null && removingTagId === tagPendingRemoval.id,
+          onAction: () => {
+            if (tagPendingRemoval) {
+              void removeTag(tagPendingRemoval);
+            }
+          },
+        }}
+        secondaryActions={[
+          {
+            content: "Cancel",
+            disabled: removingTagId !== null,
+            onAction: () => setTagPendingRemoval(null),
+          },
+        ]}
+      >
+        <Modal.Section>
+          <Text as="p">
+            Remove {tagPendingRemoval?.productTitle ?? "this product"} from this video? The product
+            will no longer appear in this video's shoppable tags.
+          </Text>
+        </Modal.Section>
+      </Modal>
 
       <form
         onSubmit={(event) => {
