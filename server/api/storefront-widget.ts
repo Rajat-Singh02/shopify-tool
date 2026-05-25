@@ -46,10 +46,12 @@ export class StorefrontWidgetExpectedError extends Error {
 }
 
 export async function getStorefrontWidgetPayload({
+  publicBaseUrl,
   shop,
   widgetId,
   widgetRepository,
 }: {
+  publicBaseUrl?: string;
   shop: unknown;
   widgetId: string;
   widgetRepository: Pick<WidgetRepository, "findPublishedStorefrontWidget">;
@@ -62,7 +64,7 @@ export async function getStorefrontWidgetPayload({
     throw new StorefrontWidgetExpectedError("Widget was not found", 404);
   }
 
-  return toPublicStorefrontWidgetPayload(widget);
+  return toPublicStorefrontWidgetPayload(widget, { publicBaseUrl });
 }
 
 export function createStorefrontWidgetBootstrapScript(): string {
@@ -75,9 +77,14 @@ export function createStorefrontWidgetBootstrapScript(): string {
   const mount = mountSelector ? document.querySelector(mountSelector) : document.createElement("div");
   if (!mount) return;
   if (!mountSelector) {
-    const parent = document.body || document.documentElement;
-    if (!parent) return;
-    parent.appendChild(mount);
+    const scriptParentTag = script.parentElement && script.parentElement.tagName ? script.parentElement.tagName.toLowerCase() : "";
+    if (script.parentNode && scriptParentTag !== "head") {
+      script.parentNode.insertBefore(mount, script.nextSibling);
+    } else {
+      const parent = document.body || document.documentElement;
+      if (!parent) return;
+      parent.appendChild(mount);
+    }
   }
   mount.setAttribute("data-shoppable-video-widget", widgetId || "");
   const root = mount.attachShadow ? mount.attachShadow({ mode: "open" }) : mount;
@@ -176,6 +183,9 @@ export function createStorefrontWidgetBootstrapScript(): string {
 
 export function toPublicStorefrontWidgetPayload(
   widget: StorefrontWidgetRecord,
+  options: {
+    publicBaseUrl?: string;
+  } = {},
 ): PublicStorefrontWidgetPayload {
   return {
     widget: {
@@ -196,7 +206,14 @@ export function toPublicStorefrontWidgetPayload(
         durationMs: video.durationMs,
         width: video.width,
         height: video.height,
-        publicUrl: isPublicMediaUrl(video.playbackUrl) ? video.playbackUrl : null,
+        publicUrl:
+          getPublicMediaUrl(video.playbackUrl, {
+            publicBaseUrl: options.publicBaseUrl,
+            shopDomain: widget.shop.shopDomain,
+            widgetId: widget.id,
+            videoId: video.id,
+            hasOriginalStorageObject: Boolean(video.storageKeyOriginal),
+          }) ?? null,
         tags: video.productTags
           .filter((tag) => tag.isActive)
           .map((tag) => ({
@@ -253,5 +270,43 @@ function isPublicMediaUrl(value: string | null): value is string {
     return url.protocol === "https:" || url.protocol === "http:";
   } catch {
     return false;
+  }
+}
+
+function getPublicMediaUrl(
+  playbackUrl: string | null,
+  {
+    publicBaseUrl,
+    shopDomain,
+    widgetId,
+    videoId,
+    hasOriginalStorageObject,
+  }: {
+    publicBaseUrl?: string;
+    shopDomain: string;
+    widgetId: string;
+    videoId: string;
+    hasOriginalStorageObject: boolean;
+  },
+): string | null {
+  if (isPublicMediaUrl(playbackUrl)) {
+    return playbackUrl;
+  }
+
+  if (!publicBaseUrl || !hasOriginalStorageObject) {
+    return null;
+  }
+
+  try {
+    const url = new URL(
+      `/api/storefront/widgets/${encodeURIComponent(widgetId)}/videos/${encodeURIComponent(videoId)}/media`,
+      publicBaseUrl,
+    );
+
+    url.searchParams.set("shop", shopDomain);
+
+    return url.toString();
+  } catch {
+    return null;
   }
 }

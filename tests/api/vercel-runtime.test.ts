@@ -10,6 +10,7 @@ import {
   resolveVercelRuntimeRoute,
 } from "../../api/[...path]";
 import { StorefrontAnalyticsExpectedError } from "../../server/api/storefront-analytics";
+import { StorefrontMediaExpectedError } from "../../server/api/storefront-media";
 import { StorefrontWidgetExpectedError } from "../../server/api/storefront-widget";
 
 describe("Vercel runtime route surface", () => {
@@ -61,6 +62,7 @@ describe("Vercel runtime route surface", () => {
     ["/api/admin-videos/upload-intent", "video-upload"],
     ["/widget.js", "storefront-widget"],
     ["/api/storefront/widgets/widget_1", "storefront-widget"],
+    ["/api/storefront/widgets/widget_1/videos/video_1/media", "storefront-media"],
     ["/api/storefront/events", "storefront-event"],
     ["/api/webhooks", "webhook"],
     ["/webhooks", "webhook"],
@@ -643,11 +645,19 @@ describe("Vercel runtime route surface", () => {
         method: "OPTIONS",
       }),
     );
+    const mediaPreflight = await handleVercelRuntimeRequest(
+      new Request("https://app.example.test/api/storefront/widgets/widget_1/videos/video_1/media", {
+        method: "OPTIONS",
+      }),
+    );
 
     expect(scriptPreflight.status).toBe(204);
     expect(eventPreflight.status).toBe(204);
+    expect(mediaPreflight.status).toBe(204);
     expect(scriptPreflight.headers.get("Access-Control-Allow-Origin")).toBe("*");
     expect(eventPreflight.headers.get("Access-Control-Allow-Origin")).toBe("*");
+    expect(mediaPreflight.headers.get("Access-Control-Allow-Origin")).toBe("*");
+    expect(mediaPreflight.headers.get("Access-Control-Allow-Headers")).toContain("Range");
   });
 
   it("serves a public storefront widget payload without admin auth", async () => {
@@ -703,6 +713,53 @@ describe("Vercel runtime route surface", () => {
     expect(serializedBody).not.toContain("session");
     expect(serializedBody).not.toContain("DATABASE_URL");
     expect(serializedBody).not.toContain("/tmp/shoppable-video-storage");
+  });
+
+  it("serves public storefront media without admin auth", async () => {
+    const handleStorefrontMedia = vi.fn().mockResolvedValue(
+      new Response("video bytes", {
+        headers: {
+          "Access-Control-Allow-Origin": "*",
+          "Content-Type": "video/mp4",
+        },
+      }),
+    );
+    const response = await handleVercelRuntimeRequest(
+      new Request(
+        "https://app.example.test/api/storefront/widgets/widget_1/videos/video_1/media?shop=test-shop.myshopify.com",
+      ),
+      {
+        handleStorefrontMedia,
+      },
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe("video bytes");
+    expect(response.headers.get("Content-Type")).toContain("video/mp4");
+    expect(handleStorefrontMedia).toHaveBeenCalledWith(expect.any(Request));
+  });
+
+  it("returns safe storefront media errors", async () => {
+    const response = await handleVercelRuntimeRequest(
+      new Request(
+        "https://app.example.test/api/storefront/widgets/widget_1/videos/video_1/media?shop=test-shop.myshopify.com",
+      ),
+      {
+        handleStorefrontMedia() {
+          return Promise.reject(
+            new StorefrontMediaExpectedError(
+              "/tmp/private/storage/demo.mp4",
+              404,
+              "Video media was not found",
+            ),
+          );
+        },
+      },
+    );
+    const serializedBody = JSON.stringify(await response.json());
+
+    expect(response.status).toBe(404);
+    expect(serializedBody).not.toContain("/tmp/private");
   });
 
   it("returns safe storefront widget errors for invalid or missing widgets", async () => {

@@ -183,6 +183,21 @@ describe("storefront widget service", () => {
     expect(serialized).not.toContain("Hidden Shirt");
   });
 
+  it("generates public media URLs for ready local manual-upload videos without leaking storage keys", () => {
+    const payload = toPublicStorefrontWidgetPayload(createWidget(), {
+      publicBaseUrl: "https://app.example.test",
+    });
+    const localVideo = payload.videos.find((video) => video.id === "video_local");
+    const serialized = JSON.stringify(payload);
+
+    expect(localVideo?.publicUrl).toBe(
+      "https://app.example.test/api/storefront/widgets/widget_1/videos/video_local/media?shop=test-shop.myshopify.com",
+    );
+    expect(serialized).not.toContain("storageKeyOriginal");
+    expect(serialized).not.toContain("shops/shop_1/videos/video_local/original/local.mp4");
+    expect(serialized).not.toContain("/tmp/shoppable-video-storage");
+  });
+
   it("validates shop domains and widget ids before repository lookup", async () => {
     const widgetRepository = {
       findPublishedStorefrontWidget: vi.fn().mockResolvedValue(createWidget()),
@@ -235,6 +250,7 @@ describe("storefront widget service", () => {
     expect(script).toContain("PRODUCT_CLICK");
     expect(script).toContain(".catch(() => {})");
     expect(script).toContain("document.createElement");
+    expect(script).toContain("script.parentNode.insertBefore");
     expect(script).toContain("textContent");
     expect(script).not.toContain("innerHTML");
     expect(script).not.toContain("SHOPIFY_API_SECRET");
