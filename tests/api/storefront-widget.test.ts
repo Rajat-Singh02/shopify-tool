@@ -251,6 +251,11 @@ describe("storefront widget service", () => {
     expect(script).toContain("media.loop = true");
     expect(script).toContain("media.muted = true");
     expect(script).toContain("sv-mute");
+    expect(script).toContain("muteEventName");
+    expect(script).toContain("window.dispatchEvent(new CustomEvent");
+    expect(script).toContain("muteButtons.set(media, muteButton)");
+    expect(script).toContain("muteButton.hidden = true");
+    expect(script).toContain("muteButton.hidden = false");
     expect(script).toContain("Video preview is unavailable.");
     expect(script).toContain("VIDEO_IMPRESSION");
     expect(script).toContain("PRODUCT_CLICK");
