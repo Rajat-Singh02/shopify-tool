@@ -44,6 +44,10 @@ import {
   type PublicStorefrontWidgetPayload,
 } from "../server/api/storefront-widget.js";
 import {
+  serveStorefrontWidgetVideoMedia,
+  StorefrontMediaExpectedError,
+} from "../server/api/storefront-media.js";
+import {
   ingestStorefrontAnalyticsEvent,
   StorefrontAnalyticsExpectedError,
   type StorefrontAnalyticsResponse,
@@ -84,6 +88,7 @@ type VercelRuntimeRoute =
   | "health"
   | "product-search"
   | "storefront-event"
+  | "storefront-media"
   | "storefront-widget"
   | "video-library"
   | "video-product-tags"
@@ -157,6 +162,7 @@ type RuntimeDependencies = {
   handleAdminWidget?: (request: Request) => Promise<Response>;
   handleProductSearch?: (request: Request) => Promise<Response>;
   handleStorefrontEvent?: (request: Request) => Promise<Response>;
+  handleStorefrontMedia?: (request: Request) => Promise<Response>;
   handleStorefrontWidget?: (request: Request) => Promise<Response>;
   handleVideoLibrary?: (request: Request) => Promise<Response>;
   handleVideoProductTags?: (request: Request) => Promise<Response>;
@@ -258,8 +264,8 @@ function createPublicCorsHeaders(headers: HeadersInit = {}): Headers {
   const corsHeaders = new Headers(headers);
 
   corsHeaders.set("Access-Control-Allow-Origin", "*");
-  corsHeaders.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-  corsHeaders.set("Access-Control-Allow-Headers", "Content-Type, Accept");
+  corsHeaders.set("Access-Control-Allow-Methods", "GET, HEAD, POST, OPTIONS");
+  corsHeaders.set("Access-Control-Allow-Headers", "Content-Type, Accept, Range");
   corsHeaders.set("Access-Control-Max-Age", "86400");
 
   return corsHeaders;
@@ -286,6 +292,10 @@ export function resolveVercelRuntimeRoute(pathname: string): VercelRuntimeRoute 
 
   if (pathname === "/api/storefront/events") {
     return "storefront-event";
+  }
+
+  if (/^\/api\/storefront\/widgets\/[^/]+\/videos\/[^/]+\/media$/.test(pathname)) {
+    return "storefront-media";
   }
 
   if (
@@ -391,6 +401,10 @@ export async function handleVercelRuntimeRequest(
 
   if (route === "storefront-widget") {
     return handleStorefrontWidgetRequest(request, dependencies);
+  }
+
+  if (route === "storefront-media") {
+    return handleStorefrontMediaRequest(request, dependencies);
   }
 
   if (route === "storefront-event") {
@@ -1534,7 +1548,7 @@ async function handleStorefrontWidgetRequest(
     const shopDomain = url.searchParams.get("shop");
     const result = loadStorefrontWidget
       ? await loadStorefrontWidget(shopDomain ?? "", widgetId)
-      : await loadStorefrontWidgetFromDatabase(shopDomain ?? "", widgetId);
+      : await loadStorefrontWidgetFromDatabase(shopDomain ?? "", widgetId, url.origin);
 
     return Response.json(result, {
       headers: createPublicCorsHeaders({
@@ -1551,6 +1565,40 @@ async function handleStorefrontWidgetRequest(
   }
 }
 
+async function handleStorefrontMediaRequest(
+  request: Request,
+  { handleStorefrontMedia }: RuntimeDependencies,
+): Promise<Response> {
+  if (request.method === "OPTIONS") {
+    return publicCorsPreflightResponse();
+  }
+
+  if (request.method !== "GET" && request.method !== "HEAD") {
+    return storefrontMediaFailureResponse(405, "Storefront media only supports GET requests.");
+  }
+
+  try {
+    if (handleStorefrontMedia) {
+      return await handleStorefrontMedia(request);
+    }
+
+    const { getPrismaClient, WidgetRepository } = await import("@shoppable-video/db");
+
+    return serveStorefrontWidgetVideoMedia({
+      request,
+      storageResolver: createLocalVideoStorageResolverFromEnv(),
+      widgetRepository: new WidgetRepository(getPrismaClient()),
+    });
+  } catch (error) {
+    if (error instanceof StorefrontMediaExpectedError) {
+      return storefrontMediaFailureResponse(error.status, error.clientMessage);
+    }
+
+    logStorefrontMediaError(error);
+    return storefrontMediaFailureResponse(500);
+  }
+}
+
 function parseStorefrontWidgetId(pathname: string): string {
   const match = pathname.match(/^\/api\/storefront\/widgets\/([^/]+)$/);
 
@@ -1564,14 +1612,42 @@ function parseStorefrontWidgetId(pathname: string): string {
 async function loadStorefrontWidgetFromDatabase(
   shopDomain: string,
   widgetId: string,
+  publicBaseUrl?: string,
 ): Promise<PublicStorefrontWidgetPayload> {
   const { getPrismaClient, WidgetRepository } = await import("@shoppable-video/db");
 
   return getStorefrontWidgetPayload({
+    publicBaseUrl,
     shop: shopDomain,
     widgetId,
     widgetRepository: new WidgetRepository(getPrismaClient()),
   });
+}
+
+function logStorefrontMediaError(error: unknown): void {
+  const reason = error instanceof Error ? error.name : "UnknownStorefrontMediaError";
+
+  console.error("Failed to handle storefront media request", {
+    operation: "storefront.media",
+    reason,
+  });
+}
+
+function storefrontMediaFailureResponse(
+  status: number,
+  message = "We could not load the storefront media.",
+): Response {
+  return Response.json(
+    {
+      message,
+    },
+    {
+      status,
+      headers: createPublicCorsHeaders({
+        "Cache-Control": "no-store",
+      }),
+    },
+  );
 }
 
 function logStorefrontWidgetError(error: unknown): void {
