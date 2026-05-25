@@ -57,6 +57,7 @@ function createWidget(overrides: Partial<StorefrontWidgetRecord> = {}): Storefro
               shopifyProductId: "gid://shopify/Product/1",
               shopifyVariantId: "gid://shopify/ProductVariant/1",
               productTitleSnapshot: "Linen Shirt",
+              productHandleSnapshot: "linen-shirt",
               variantTitleSnapshot: "Small",
               productImageUrlSnapshot: null,
               priceSnapshot: null,

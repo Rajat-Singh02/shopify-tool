@@ -73,6 +73,7 @@ const readyVideoTag: VideoProductTag = {
   videoId: "video_1",
   productId: "gid://shopify/Product/1",
   productTitle: "Linen Shirt",
+  productHandle: "linen-shirt",
   variantId: "gid://shopify/ProductVariant/1",
   variantTitle: "Small",
   createdAt: "2026-05-23T00:06:00.000Z",
