@@ -2,7 +2,6 @@ import { createHash } from "node:crypto";
 import type { IncomingHttpHeaders, IncomingMessage, ServerResponse } from "node:http";
 
 import {
-  createLocalVideoStorageResolverFromEnv,
   createUnknownVideoMetadata,
   extractVideoMetadata,
   processVideoJob,
@@ -65,6 +64,10 @@ import {
   type VideoProcessingDispatcher,
   type VideoUploadShop,
 } from "../server/api/video-upload.js";
+import {
+  createStorefrontMediaStorageResolverFromEnv,
+  createVideoStorageResolverFromEnv,
+} from "../server/api/video-storage.js";
 import {
   createVideoProductTag,
   deleteVideoProductTag,
@@ -1586,7 +1589,7 @@ async function handleStorefrontMediaRequest(
 
     return await serveStorefrontWidgetVideoMedia({
       request,
-      storageResolver: createLocalVideoStorageResolverFromEnv(),
+      storageResolver: createStorefrontMediaStorageResolverFromEnv(),
       widgetRepository: new WidgetRepository(getPrismaClient()),
     });
   } catch (error) {
@@ -2485,7 +2488,7 @@ function createVideoProcessingDispatcherFromEnv(
         },
         {
           videoRepository,
-          storageResolver: createLocalVideoStorageResolverFromEnv(env),
+          storageResolver: createVideoStorageResolverFromEnv(env),
           extractMetadata,
         },
       );

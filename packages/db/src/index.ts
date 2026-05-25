@@ -53,6 +53,13 @@ export {
   type VideoStatus,
 } from "./repositories/video-repository.js";
 export {
+  VideoStorageObjectRepository,
+  type ReadVideoStorageObjectResult,
+  type VideoStorageObjectRecord,
+  type VideoStorageObjectRepositoryClient,
+  type WriteVideoStorageObjectInput,
+} from "./repositories/video-storage-object-repository.js";
+export {
   VideoProductTagRepository,
   type UpsertVideoProductTagInput,
   type VideoProductTagRecord,

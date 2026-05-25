@@ -2,7 +2,12 @@ import { randomUUID } from "node:crypto";
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-import type { VideoRecord, VideoRepository } from "@shoppable-video/db";
+import {
+  getPrismaClient,
+  VideoStorageObjectRepository,
+  type VideoRecord,
+  type VideoRepository,
+} from "@shoppable-video/db";
 
 const DEFAULT_UPLOAD_TTL_MS = 15 * 60 * 1000;
 
@@ -20,7 +25,7 @@ export type VideoUploadIntentRequest = {
 export type VideoUploadEnvironment = {
   allowedVideoMimeTypes: string[];
   maxVideoSizeBytes: number;
-  storageProvider: "local";
+  storageProvider: "local" | "database";
   localStorageRoot: string;
 };
 
@@ -31,7 +36,7 @@ export type StorageWriteInput = {
 };
 
 export type StorageProvider = {
-  readonly name: "local";
+  readonly name: "local" | "database";
   writeObject(input: StorageWriteInput): Promise<void>;
   objectExists(key: string): Promise<boolean>;
   objectSize(key: string): Promise<number | null>;
@@ -129,6 +134,39 @@ export class LocalStorageProvider implements StorageProvider {
   }
 }
 
+export class DatabaseStorageProvider implements StorageProvider {
+  readonly name = "database" as const;
+
+  constructor(
+    private readonly repository: Pick<
+      VideoStorageObjectRepository,
+      "writeObject" | "objectExists" | "objectSize"
+    > = new VideoStorageObjectRepository(getPrismaClient()),
+  ) {}
+
+  async writeObject({ key, body, contentType }: StorageWriteInput): Promise<void> {
+    assertSafeStorageKey(key);
+
+    await this.repository.writeObject({
+      key,
+      body,
+      contentType,
+    });
+  }
+
+  async objectExists(key: string): Promise<boolean> {
+    assertSafeStorageKey(key);
+
+    return this.repository.objectExists(key);
+  }
+
+  async objectSize(key: string): Promise<number | null> {
+    assertSafeStorageKey(key);
+
+    return this.repository.objectSize(key);
+  }
+}
+
 export function createStorageProviderFromEnv(
   env: NodeJS.ProcessEnv = process.env,
 ): StorageProvider {
@@ -138,7 +176,7 @@ export function createStorageProviderFromEnv(
     return new LocalStorageProvider(uploadEnvironment.localStorageRoot);
   }
 
-  throw new VideoUploadExpectedError("Unsupported storage provider", 500);
+  return new DatabaseStorageProvider();
 }
 
 export function parseVideoUploadEnvironment(
@@ -146,7 +184,7 @@ export function parseVideoUploadEnvironment(
 ): VideoUploadEnvironment {
   const storageProvider = (env.STORAGE_PROVIDER ?? "local").trim().toLowerCase();
 
-  if (storageProvider !== "local") {
+  if (storageProvider !== "local" && storageProvider !== "database") {
     throw new VideoUploadExpectedError("Unsupported storage provider", 500);
   }
 

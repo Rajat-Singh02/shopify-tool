@@ -126,6 +126,35 @@ describe("storefront media service", () => {
     expect(await response.text()).toBe("2345");
   });
 
+  it("serves byte-backed media objects for durable preview storage", async () => {
+    const response = await serveStorefrontWidgetVideoMedia({
+      request: new Request(
+        "https://app.example.test/api/storefront/widgets/widget_1/videos/video_ready/media?shop=test-shop.myshopify.com",
+        {
+          headers: {
+            Range: "bytes=6-10",
+          },
+        },
+      ),
+      storageResolver: {
+        resolveOriginalObject: vi.fn().mockResolvedValue({
+          kind: "bytes",
+          body: new TextEncoder().encode("video bytes"),
+          contentType: "video/mp4",
+          sizeBytes: 11,
+        }),
+      },
+      widgetRepository: {
+        findPublishedStorefrontWidget: vi.fn().mockResolvedValue(createWidget()),
+      },
+    });
+
+    expect(response.status).toBe(206);
+    expect(response.headers.get("Content-Type")).toBe("video/mp4");
+    expect(response.headers.get("Content-Range")).toBe("bytes 6-10/11");
+    expect(await response.text()).toBe("bytes");
+  });
+
   it("rejects missing widgets and non-ready attached videos safely", async () => {
     await expect(
       serveStorefrontWidgetVideoMedia({

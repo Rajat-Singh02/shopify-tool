@@ -37,7 +37,9 @@ The storefront payload must not expose access tokens, sessions, API secrets, `DA
 
 Only `READY` videos are returned. Archived, failed, uploaded, and processing videos are filtered out. Product tags are limited to active variant-level tags.
 
-If a video does not yet have a public media URL, `publicUrl` is `null`. Local storage filesystem paths are never returned.
+If a video has durable preview media available, `publicUrl` points at the public storefront media route. Local storage filesystem paths and private storage keys are never returned.
+
+Vercel preview should use `STORAGE_PROVIDER=database` for manual-upload media. Videos uploaded while preview was using local storage may still be `READY` in the database but fail playback because the underlying temporary file is gone. Re-upload those videos after switching storage provider.
 
 ## Admin Routes
 
@@ -78,5 +80,5 @@ The admin Widgets page lists widgets, creates widgets, edits title/status, attac
 - No admin analytics dashboard or charts yet.
 - No theme app extension yet.
 - No advanced styling or layout editor yet.
-- Public media URL may be null until media serving is finalized.
 - No thumbnails or transcoding yet.
+- Database-backed media storage is preview-focused; production object storage/CDN hardening is still pending.
