@@ -9,7 +9,14 @@ const MAX_SHOP_DOMAIN_LENGTH = 255;
 const MAX_ID_LENGTH = 160;
 
 export type StorefrontMediaStorageResolver = {
-  resolveOriginalObject(video: VideoRecord): Promise<string>;
+  resolveOriginalObject(video: VideoRecord): Promise<string | StorefrontMediaObject>;
+};
+
+export type StorefrontMediaObject = {
+  kind: "bytes";
+  body: Uint8Array;
+  contentType: string;
+  sizeBytes: number;
 };
 
 export class StorefrontMediaExpectedError extends Error {
@@ -35,12 +42,12 @@ export async function serveStorefrontWidgetVideoMedia({
   const { shopDomain, videoId, widgetId } = parseStorefrontMediaRequest(request);
   const widget = await widgetRepository.findPublishedStorefrontWidget(shopDomain, widgetId);
   const video = findPublicReadyWidgetVideo(widget, videoId);
-  const objectPath = await resolveOriginalObjectPath(storageResolver, video);
-  const objectStat = await statPublicMediaObject(objectPath);
-  const byteRange = parseRangeHeader(request.headers.get("Range"), objectStat.size);
+  const mediaObject = await resolveOriginalObject(storageResolver, video);
+  const mediaSize = getPublicMediaObjectSize(mediaObject);
+  const byteRange = parseRangeHeader(request.headers.get("Range"), mediaSize);
   const headers = createMediaHeaders({
-    contentType: video.originalMimeType,
-    fileSize: objectStat.size,
+    contentType: mediaObject.kind === "bytes" ? mediaObject.contentType : video.originalMimeType,
+    fileSize: mediaSize,
     range: byteRange,
   });
 
@@ -51,7 +58,14 @@ export async function serveStorefrontWidgetVideoMedia({
     });
   }
 
-  const stream = createReadStream(objectPath, {
+  if (mediaObject.kind === "bytes") {
+    return new Response(createByteStream(slicePublicMediaObject(mediaObject, byteRange)), {
+      status: byteRange ? 206 : 200,
+      headers,
+    });
+  }
+
+  const stream = createReadStream(mediaObject.path, {
     start: byteRange?.start,
     end: byteRange?.end,
   });
@@ -101,15 +115,67 @@ function findPublicReadyWidgetVideo(
   return video;
 }
 
-async function resolveOriginalObjectPath(
+type ResolvedStorefrontMediaObject =
+  | {
+      kind: "file";
+      path: string;
+      sizeBytes: number;
+    }
+  | StorefrontMediaObject;
+
+async function resolveOriginalObject(
   storageResolver: StorefrontMediaStorageResolver,
   video: VideoRecord,
-): Promise<string> {
+): Promise<ResolvedStorefrontMediaObject> {
   try {
-    return await storageResolver.resolveOriginalObject(video);
+    const resolved = await storageResolver.resolveOriginalObject(video);
+
+    if (typeof resolved === "string") {
+      const objectStat = await statPublicMediaObject(resolved);
+
+      return {
+        kind: "file",
+        path: resolved,
+        sizeBytes: objectStat.size,
+      };
+    }
+
+    if (
+      resolved.kind === "bytes" &&
+      resolved.body.byteLength === resolved.sizeBytes &&
+      resolved.sizeBytes > 0
+    ) {
+      return resolved;
+    }
+
+    throw new Error("invalid media object");
   } catch {
     throw new StorefrontMediaExpectedError("Video media was not found", 404);
   }
+}
+
+function getPublicMediaObjectSize(mediaObject: ResolvedStorefrontMediaObject): number {
+  return mediaObject.kind === "bytes" ? mediaObject.sizeBytes : mediaObject.sizeBytes;
+}
+
+function slicePublicMediaObject(
+  mediaObject: StorefrontMediaObject,
+  range: ByteRange | null,
+): Uint8Array {
+  if (!range) {
+    return mediaObject.body;
+  }
+
+  return mediaObject.body.slice(range.start, range.end + 1);
+}
+
+function createByteStream(body: Uint8Array): ReadableStream<Uint8Array> {
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(body);
+      controller.close();
+    },
+  });
 }
 
 async function statPublicMediaObject(objectPath: string): Promise<{

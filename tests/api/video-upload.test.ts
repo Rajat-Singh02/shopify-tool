@@ -9,7 +9,9 @@ import type { VideoRecord } from "@shoppable-video/db";
 import {
   completeManualUpload,
   createManualUploadIntent,
+  DatabaseStorageProvider,
   LocalStorageProvider,
+  parseVideoUploadEnvironment,
   toSafeVideoDto,
   VideoUploadExpectedError,
   writeManualUploadObject,
@@ -162,6 +164,38 @@ describe("manual video upload services", () => {
         contentType: "video/mp4",
       }),
     ).rejects.toThrow(VideoUploadExpectedError);
+  });
+
+  it("supports database-backed preview storage without filesystem paths", async () => {
+    const objects = new Map<string, { body: Uint8Array; contentType: string }>();
+    const provider = new DatabaseStorageProvider({
+      writeObject(input) {
+        objects.set(input.key, {
+          body: input.body,
+          contentType: input.contentType,
+        });
+
+        return Promise.resolve();
+      },
+      objectExists(key) {
+        return Promise.resolve(objects.has(key));
+      },
+      objectSize(key) {
+        return Promise.resolve(objects.get(key)?.body.byteLength ?? null);
+      },
+    });
+    const video = createVideo();
+
+    await provider.writeObject({
+      key: video.storageKeyOriginal ?? "",
+      body: new Uint8Array([1, 2, 3, 4]),
+      contentType: "video/mp4",
+    });
+
+    await expect(provider.objectExists(video.storageKeyOriginal ?? "")).resolves.toBe(true);
+    await expect(provider.objectSize(video.storageKeyOriginal ?? "")).resolves.toBe(4);
+    expect(parseVideoUploadEnvironment({ ...env, STORAGE_PROVIDER: "database" }).storageProvider)
+      .toBe("database");
   });
 
   it("writes an upload only when MIME type and size match the intent", async () => {
