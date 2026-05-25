@@ -125,6 +125,9 @@ export function createStorefrontWidgetBootstrapScript(): string {
   const endpoint = new URL("/api/storefront/widgets/" + encodeURIComponent(widgetId), script.src);
   const eventEndpoint = new URL("/api/storefront/events", script.src);
   endpoint.searchParams.set("shop", shop);
+  const muteEventName = "shoppable-video:unmuted";
+  const widgetMedia = [];
+  const muteButtons = new WeakMap();
   const requestVideoPlay = (media) => {
     try {
       const playResult = media.play();
@@ -137,6 +140,36 @@ export function createStorefrontWidgetBootstrapScript(): string {
     setText(button, media.muted ? "Unmute" : "Mute");
     button.setAttribute("aria-label", media.muted ? "Unmute video" : "Mute video");
   };
+  const setMediaMuted = (media, muted) => {
+    media.muted = muted;
+    if (muted) {
+      media.setAttribute("muted", "");
+    } else {
+      media.removeAttribute("muted");
+    }
+    const button = muteButtons.get(media);
+    if (button) {
+      setMuteText(button, media);
+    }
+  };
+  const muteAllExcept = (activeMedia) => {
+    for (const media of widgetMedia) {
+      if (media !== activeMedia) {
+        setMediaMuted(media, true);
+      }
+    }
+  };
+  const announceUnmutedMedia = (media) => {
+    try {
+      window.dispatchEvent(new CustomEvent(muteEventName, { detail: { media } }));
+    } catch {
+      muteAllExcept(media);
+    }
+  };
+  window.addEventListener(muteEventName, (event) => {
+    const activeMedia = event && event.detail ? event.detail.media : undefined;
+    muteAllExcept(activeMedia);
+  });
   const sendEvent = (event) => {
     try {
       const body = JSON.stringify(Object.assign({ shop, widgetId, metadata: { source: "widget" } }, event));
@@ -202,23 +235,36 @@ export function createStorefrontWidgetBootstrapScript(): string {
           media.setAttribute("loop", "");
           media.setAttribute("muted", "");
           media.setAttribute("playsinline", "");
+          const muteButton = document.createElement("button");
+          muteButton.className = "sv-mute";
+          muteButton.type = "button";
+          muteButton.hidden = true;
+          setMuteText(muteButton, media);
+          muteButtons.set(media, muteButton);
+          widgetMedia.push(media);
           media.addEventListener("play", () => sendEvent({ eventType: "VIDEO_PLAY", videoId: video.id }));
           media.addEventListener("pause", () => sendEvent({ eventType: "VIDEO_PAUSE", videoId: video.id }));
-          media.addEventListener("canplay", () => requestVideoPlay(media), { once: true });
+          media.addEventListener("canplay", () => {
+            fallback.hidden = true;
+            muteButton.hidden = false;
+            requestVideoPlay(media);
+          }, { once: true });
           media.addEventListener("error", () => {
             media.hidden = true;
             fallback.hidden = false;
+            muteButton.hidden = true;
+            setMediaMuted(media, true);
           });
           item.appendChild(media);
           fallback.hidden = true;
           item.appendChild(fallback);
-          const muteButton = document.createElement("button");
-          muteButton.className = "sv-mute";
-          muteButton.type = "button";
-          setMuteText(muteButton, media);
           muteButton.addEventListener("click", () => {
-            media.muted = !media.muted;
-            setMuteText(muteButton, media);
+            if (media.muted) {
+              announceUnmutedMedia(media);
+              setMediaMuted(media, false);
+            } else {
+              setMediaMuted(media, true);
+            }
             requestVideoPlay(media);
           });
           item.appendChild(muteButton);
