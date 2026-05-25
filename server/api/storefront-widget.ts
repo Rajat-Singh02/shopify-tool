@@ -89,6 +89,28 @@ export function createStorefrontWidgetBootstrapScript(): string {
   mount.setAttribute("data-shoppable-video-widget", widgetId || "");
   const root = mount.attachShadow ? mount.attachShadow({ mode: "open" }) : mount;
   const setText = (node, value) => { node.textContent = value == null ? "" : String(value); };
+  const renderStyles = () => {
+    const style = document.createElement("style");
+    style.textContent = [
+      ":host{display:block;color:#111;font-family:inherit}",
+      "*{box-sizing:border-box}",
+      ".sv-widget{width:100%;margin:28px 0;padding:0}",
+      ".sv-header{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;margin:0 0 14px}",
+      ".sv-title{font:inherit;font-size:24px;font-weight:700;line-height:1.2;margin:0;color:inherit}",
+      ".sv-list{display:flex;gap:16px;overflow-x:auto;overscroll-behavior-x:contain;scroll-snap-type:x mandatory;padding:2px 2px 12px}",
+      ".sv-list::-webkit-scrollbar{height:8px}",
+      ".sv-list::-webkit-scrollbar-thumb{background:rgba(0,0,0,.18);border-radius:999px}",
+      ".sv-reel{position:relative;flex:0 0 230px;aspect-ratio:9/16;overflow:hidden;border-radius:18px;background:#111;box-shadow:0 8px 24px rgba(0,0,0,.14);scroll-snap-align:start}",
+      ".sv-media{display:block;width:100%;height:100%;object-fit:cover;background:#111}",
+      ".sv-placeholder{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:20px;text-align:center;background:linear-gradient(180deg,#2b2b2b,#111);color:#fff;font-size:14px;line-height:1.35}",
+      ".sv-mute{position:absolute;top:10px;right:10px;z-index:2;min-width:74px;height:34px;border:0;border-radius:999px;background:rgba(255,255,255,.92);color:#111;font:inherit;font-size:13px;font-weight:650;line-height:1;box-shadow:0 4px 14px rgba(0,0,0,.16);cursor:pointer}",
+      ".sv-products{position:absolute;left:10px;right:10px;bottom:10px;z-index:2;display:flex;flex-direction:column;gap:8px;margin:0;padding:0;list-style:none}",
+      ".sv-product{width:100%;border:0;border-radius:12px;background:rgba(255,255,255,.94);color:#111;font:inherit;font-size:13px;font-weight:650;line-height:1.25;text-align:left;padding:10px 12px;box-shadow:0 4px 14px rgba(0,0,0,.18);cursor:pointer}",
+      ".sv-empty{margin:0;color:rgba(0,0,0,.68);font-size:15px}",
+      "@media (max-width:640px){.sv-widget{margin:22px 0}.sv-title{font-size:20px}.sv-list{gap:12px}.sv-reel{flex-basis:190px;border-radius:16px}}"
+    ].join("");
+    root.appendChild(style);
+  };
   const renderMessage = (message) => {
     root.textContent = "";
     const container = document.createElement("div");
@@ -103,6 +125,18 @@ export function createStorefrontWidgetBootstrapScript(): string {
   const endpoint = new URL("/api/storefront/widgets/" + encodeURIComponent(widgetId), script.src);
   const eventEndpoint = new URL("/api/storefront/events", script.src);
   endpoint.searchParams.set("shop", shop);
+  const requestVideoPlay = (media) => {
+    try {
+      const playResult = media.play();
+      if (playResult && typeof playResult.catch === "function") {
+        playResult.catch(() => {});
+      }
+    } catch {}
+  };
+  const setMuteText = (button, media) => {
+    setText(button, media.muted ? "Unmute" : "Mute");
+    button.setAttribute("aria-label", media.muted ? "Unmute video" : "Mute video");
+  };
   const sendEvent = (event) => {
     try {
       const body = JSON.stringify(Object.assign({ shop, widgetId, metadata: { source: "widget" } }, event));
@@ -127,37 +161,78 @@ export function createStorefrontWidgetBootstrapScript(): string {
     })
     .then((payload) => {
       root.textContent = "";
+      renderStyles();
       const container = document.createElement("section");
+      container.className = "sv-widget";
       container.setAttribute("aria-label", "Shoppable videos");
+      const header = document.createElement("div");
+      header.className = "sv-header";
       const title = document.createElement("h2");
+      title.className = "sv-title";
       setText(title, payload.widget && payload.widget.title ? payload.widget.title : "Shoppable videos");
-      container.appendChild(title);
+      header.appendChild(title);
+      container.appendChild(header);
       const list = document.createElement("div");
+      list.className = "sv-list";
       const videos = Array.isArray(payload.videos) ? payload.videos : [];
       if (videos.length === 0) {
         const empty = document.createElement("p");
+        empty.className = "sv-empty";
         setText(empty, "No shoppable videos are available.");
         list.appendChild(empty);
       }
       for (const video of videos) {
         const item = document.createElement("article");
-        const label = document.createElement("p");
-        setText(label, video.publicUrl ? "Shoppable video" : "Shoppable video preview unavailable");
-        item.appendChild(label);
+        item.className = "sv-reel";
+        const fallback = document.createElement("div");
+        fallback.className = "sv-placeholder";
+        setText(fallback, "Video preview is unavailable.");
         if (video.publicUrl) {
           const media = document.createElement("video");
+          media.className = "sv-media";
           media.src = video.publicUrl;
-          media.controls = true;
+          media.autoplay = true;
+          media.controls = false;
+          media.defaultMuted = true;
+          media.loop = true;
+          media.muted = true;
+          media.preload = "auto";
           media.playsInline = true;
+          media.setAttribute("autoplay", "");
+          media.setAttribute("loop", "");
+          media.setAttribute("muted", "");
+          media.setAttribute("playsinline", "");
           media.addEventListener("play", () => sendEvent({ eventType: "VIDEO_PLAY", videoId: video.id }));
           media.addEventListener("pause", () => sendEvent({ eventType: "VIDEO_PAUSE", videoId: video.id }));
+          media.addEventListener("canplay", () => requestVideoPlay(media), { once: true });
+          media.addEventListener("error", () => {
+            media.hidden = true;
+            fallback.hidden = false;
+          });
           item.appendChild(media);
+          fallback.hidden = true;
+          item.appendChild(fallback);
+          const muteButton = document.createElement("button");
+          muteButton.className = "sv-mute";
+          muteButton.type = "button";
+          setMuteText(muteButton, media);
+          muteButton.addEventListener("click", () => {
+            media.muted = !media.muted;
+            setMuteText(muteButton, media);
+            requestVideoPlay(media);
+          });
+          item.appendChild(muteButton);
+          setTimeout(() => requestVideoPlay(media), 0);
+        } else {
+          item.appendChild(fallback);
         }
         const tagList = document.createElement("ul");
+        tagList.className = "sv-products";
         const tags = Array.isArray(video.tags) ? video.tags : [];
         for (const tag of tags) {
           const tagItem = document.createElement("li");
           const tagButton = document.createElement("button");
+          tagButton.className = "sv-product";
           tagButton.type = "button";
           setText(tagButton, [tag.productTitle, tag.variantTitle].filter(Boolean).join(" - "));
           tagButton.addEventListener("click", () => sendEvent({

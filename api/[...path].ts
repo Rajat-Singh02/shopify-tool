@@ -1584,7 +1584,7 @@ async function handleStorefrontMediaRequest(
 
     const { getPrismaClient, WidgetRepository } = await import("@shoppable-video/db");
 
-    return serveStorefrontWidgetVideoMedia({
+    return await serveStorefrontWidgetVideoMedia({
       request,
       storageResolver: createLocalVideoStorageResolverFromEnv(),
       widgetRepository: new WidgetRepository(getPrismaClient()),

@@ -762,6 +762,18 @@ describe("Vercel runtime route surface", () => {
     expect(serializedBody).not.toContain("/tmp/private");
   });
 
+  it("returns safe default storefront media validation errors instead of Vercel function failures", async () => {
+    const response = await handleVercelRuntimeRequest(
+      new Request(
+        "https://app.example.test/api/storefront/widgets/widget_1/videos/video_1/media?shop=not-a-shop",
+      ),
+    );
+    const body = (await response.json()) as { message: string };
+
+    expect(response.status).toBe(400);
+    expect(body.message).toBe("shop is invalid");
+  });
+
   it("returns safe storefront widget errors for invalid or missing widgets", async () => {
     const invalidShopResponse = await handleVercelRuntimeRequest(
       new Request("https://app.example.test/api/storefront/widgets/widget_1?shop=not-a-shop"),

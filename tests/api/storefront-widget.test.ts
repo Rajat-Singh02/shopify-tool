@@ -246,8 +246,15 @@ describe("storefront widget service", () => {
     expect(script).toContain("/api/storefront/events");
     expect(script).toContain("sendBeacon");
     expect(script).toContain("keepalive");
+    expect(script).toContain("media.autoplay = true");
+    expect(script).toContain("media.controls = false");
+    expect(script).toContain("media.loop = true");
+    expect(script).toContain("media.muted = true");
+    expect(script).toContain("sv-mute");
+    expect(script).toContain("Video preview is unavailable.");
     expect(script).toContain("VIDEO_IMPRESSION");
     expect(script).toContain("PRODUCT_CLICK");
+    expect(script).toContain("requestVideoPlay");
     expect(script).toContain(".catch(() => {})");
     expect(script).toContain("document.createElement");
     expect(script).toContain("script.parentNode.insertBefore");
