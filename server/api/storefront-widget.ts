@@ -28,6 +28,7 @@ export type PublicStorefrontWidgetPayload = {
       productId: string;
       variantId: string;
       productTitle: string;
+      productHandle: string | null;
       variantTitle: string | null;
       sku: string | null;
     }>;
@@ -105,7 +106,7 @@ export function createStorefrontWidgetBootstrapScript(): string {
       ".sv-placeholder{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:20px;text-align:center;background:linear-gradient(180deg,#2b2b2b,#111);color:#fff;font-size:14px;line-height:1.35}",
       ".sv-mute{position:absolute;top:10px;right:10px;z-index:2;min-width:74px;height:34px;border:0;border-radius:999px;background:rgba(255,255,255,.92);color:#111;font:inherit;font-size:13px;font-weight:650;line-height:1;box-shadow:0 4px 14px rgba(0,0,0,.16);cursor:pointer}",
       ".sv-products{position:absolute;left:10px;right:10px;bottom:10px;z-index:2;display:flex;flex-direction:column;gap:8px;margin:0;padding:0;list-style:none}",
-      ".sv-product{width:100%;border:0;border-radius:12px;background:rgba(255,255,255,.94);color:#111;font:inherit;font-size:13px;font-weight:650;line-height:1.25;text-align:left;padding:10px 12px;box-shadow:0 4px 14px rgba(0,0,0,.18);cursor:pointer}",
+      ".sv-product{display:block;width:100%;border:0;border-radius:12px;background:rgba(255,255,255,.94);color:#111;font:inherit;font-size:13px;font-weight:650;line-height:1.25;text-align:left;text-decoration:none;padding:10px 12px;box-shadow:0 4px 14px rgba(0,0,0,.18);cursor:pointer}",
       ".sv-empty{margin:0;color:rgba(0,0,0,.68);font-size:15px}",
       "@media (max-width:640px){.sv-widget{margin:22px 0}.sv-title{font-size:20px}.sv-list{gap:12px}.sv-reel{flex-basis:190px;border-radius:16px}}"
     ].join("");
@@ -186,6 +187,27 @@ export function createStorefrontWidgetBootstrapScript(): string {
         keepalive: true
       }).catch(() => {});
     } catch {}
+  };
+  const slugifyProductTitle = (title) => String(title || "")
+    .trim()
+    .toLowerCase()
+    .replace(/&/g, " and ")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 120);
+  const getVariantNumericId = (variantId) => {
+    const match = typeof variantId === "string" ? variantId.match(/\\/ProductVariant\\/([0-9]+)$/) : null;
+    return match ? match[1] : "";
+  };
+  const getProductUrl = (tag) => {
+    const handle = tag && tag.productHandle ? String(tag.productHandle) : slugifyProductTitle(tag && tag.productTitle);
+    if (!handle) return "";
+    const productUrl = new URL("/products/" + encodeURIComponent(handle), window.location.origin);
+    const variantId = getVariantNumericId(tag && tag.variantId);
+    if (variantId) {
+      productUrl.searchParams.set("variant", variantId);
+    }
+    return productUrl.toString();
   };
   fetch(endpoint.toString(), { headers: { Accept: "application/json" }, credentials: "omit" })
     .then((response) => {
@@ -277,17 +299,23 @@ export function createStorefrontWidgetBootstrapScript(): string {
         const tags = Array.isArray(video.tags) ? video.tags : [];
         for (const tag of tags) {
           const tagItem = document.createElement("li");
-          const tagButton = document.createElement("button");
-          tagButton.className = "sv-product";
-          tagButton.type = "button";
-          setText(tagButton, [tag.productTitle, tag.variantTitle].filter(Boolean).join(" - "));
-          tagButton.addEventListener("click", () => sendEvent({
+          const tagLink = document.createElement("a");
+          const productUrl = getProductUrl(tag);
+          tagLink.className = "sv-product";
+          tagLink.href = productUrl || "#";
+          setText(tagLink, [tag.productTitle, tag.variantTitle].filter(Boolean).join(" - "));
+          tagLink.addEventListener("click", (event) => {
+            if (!productUrl) {
+              event.preventDefault();
+            }
+            sendEvent({
             eventType: "PRODUCT_CLICK",
             videoId: video.id,
             productId: tag.productId,
             variantId: tag.variantId
-          }));
-          tagItem.appendChild(tagButton);
+            });
+          });
+          tagItem.appendChild(tagLink);
           tagList.appendChild(tagItem);
         }
         item.appendChild(tagList);
@@ -341,6 +369,7 @@ export function toPublicStorefrontWidgetPayload(
             productId: tag.shopifyProductId,
             variantId: tag.shopifyVariantId,
             productTitle: tag.productTitleSnapshot,
+            productHandle: tag.productHandleSnapshot,
             variantTitle: tag.variantTitleSnapshot,
             sku: null,
           })),

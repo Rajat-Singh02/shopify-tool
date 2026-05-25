@@ -50,6 +50,7 @@ function createTag(overrides: Partial<VideoProductTagRecord> = {}): VideoProduct
     shopifyProductId: "gid://shopify/Product/1",
     shopifyVariantId: "gid://shopify/ProductVariant/1",
     productTitleSnapshot: "Linen Shirt",
+    productHandleSnapshot: "linen-shirt",
     variantTitleSnapshot: "Small",
     productImageUrlSnapshot: null,
     priceSnapshot: null,
@@ -91,6 +92,7 @@ describe("video product tag services", () => {
   it("creates an idempotent safe product tag for a current-shop video", async () => {
     const tag = createTag({
       productTitleSnapshot: "Linen Shirt",
+      productHandleSnapshot: "linen-shirt",
       variantTitleSnapshot: "Small",
     });
     const upsertActive = vi.fn().mockResolvedValue(tag);
@@ -101,6 +103,7 @@ describe("video product tag services", () => {
       input: {
         productId: "gid://shopify/Product/1",
         productTitle: "  Linen    Shirt  ",
+        productHandle: "linen-shirt",
         variantId: "gid://shopify/ProductVariant/1",
         variantTitle: "  Small  ",
         sku: "IGNORED-SKU",
@@ -119,6 +122,7 @@ describe("video product tag services", () => {
       shopifyProductId: "gid://shopify/Product/1",
       shopifyVariantId: "gid://shopify/ProductVariant/1",
       productTitleSnapshot: "Linen Shirt",
+      productHandleSnapshot: "linen-shirt",
       variantTitleSnapshot: "Small",
     });
     expect(result).toEqual(toSafeVideoProductTagDto(tag));

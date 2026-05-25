@@ -57,6 +57,7 @@ function createWidget(overrides: Partial<StorefrontWidgetRecord> = {}): Storefro
               shopifyProductId: "gid://shopify/Product/1",
               shopifyVariantId: "gid://shopify/ProductVariant/1",
               productTitleSnapshot: "Linen Shirt",
+              productHandleSnapshot: "linen-shirt",
               variantTitleSnapshot: "Small",
               productImageUrlSnapshot: null,
               priceSnapshot: null,
@@ -73,6 +74,7 @@ function createWidget(overrides: Partial<StorefrontWidgetRecord> = {}): Storefro
               shopifyProductId: "gid://shopify/Product/2",
               shopifyVariantId: "gid://shopify/ProductVariant/2",
               productTitleSnapshot: "Hidden Shirt",
+              productHandleSnapshot: "hidden-shirt",
               variantTitleSnapshot: "Hidden",
               productImageUrlSnapshot: null,
               priceSnapshot: null,
@@ -170,6 +172,7 @@ describe("storefront widget service", () => {
           productId: "gid://shopify/Product/1",
           variantId: "gid://shopify/ProductVariant/1",
           productTitle: "Linen Shirt",
+          productHandle: "linen-shirt",
           variantTitle: "Small",
           sku: null,
         },
@@ -259,6 +262,11 @@ describe("storefront widget service", () => {
     expect(script).toContain("Video preview is unavailable.");
     expect(script).toContain("VIDEO_IMPRESSION");
     expect(script).toContain("PRODUCT_CLICK");
+    expect(script).toContain("document.createElement(\"a\")");
+    expect(script).toContain("/products/");
+    expect(script).toContain("searchParams.set(\"variant\"");
+    expect(script).toContain("slugifyProductTitle");
+    expect(script).toContain("getVariantNumericId");
     expect(script).toContain("requestVideoPlay");
     expect(script).toContain(".catch(() => {})");
     expect(script).toContain("document.createElement");

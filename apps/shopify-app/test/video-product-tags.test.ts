@@ -12,6 +12,7 @@ const tag = {
   videoId: "video_1",
   productId: "gid://shopify/Product/1",
   productTitle: "Linen Shirt",
+  productHandle: "linen-shirt",
   variantId: "gid://shopify/ProductVariant/1",
   variantTitle: "Small",
   createdAt: "2026-05-23T00:00:00.000Z",

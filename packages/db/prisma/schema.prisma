@@ -112,6 +112,7 @@ model VideoProductTag {
   shopifyProductId         String
   shopifyVariantId         String
   productTitleSnapshot     String
+  productHandleSnapshot    String?
   variantTitleSnapshot     String?
   productImageUrlSnapshot  String?
   priceSnapshot            Decimal?

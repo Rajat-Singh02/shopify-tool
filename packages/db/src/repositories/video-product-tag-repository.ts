@@ -7,6 +7,7 @@ export type VideoProductTagRecord = {
   shopifyProductId: string;
   shopifyVariantId: string;
   productTitleSnapshot: string;
+  productHandleSnapshot: string | null;
   variantTitleSnapshot: string | null;
   productImageUrlSnapshot: string | null;
   priceSnapshot: unknown;
@@ -41,6 +42,7 @@ export type VideoProductTagRepositoryClient = {
         shopifyProductId: string;
         shopifyVariantId: string;
         productTitleSnapshot: string;
+        productHandleSnapshot: string | null;
         variantTitleSnapshot: string | null;
         position: number;
         isActive: boolean;
@@ -51,6 +53,7 @@ export type VideoProductTagRepositoryClient = {
       data:
         | {
             productTitleSnapshot: string;
+            productHandleSnapshot: string | null;
             variantTitleSnapshot: string | null;
             isActive: true;
           }
@@ -80,6 +83,7 @@ export type VideoProductTagRepositoryClient = {
       update: {
         shopifyProductId: string;
         productTitleSnapshot: string;
+        productHandleSnapshot: string | null;
         variantTitleSnapshot: string | null;
         isActive: true;
       };
@@ -90,6 +94,7 @@ export type VideoProductTagRepositoryClient = {
         shopifyProductId: string;
         shopifyVariantId: string;
         productTitleSnapshot: string;
+        productHandleSnapshot: string | null;
         variantTitleSnapshot: string | null;
         position: number;
         isActive: boolean;
@@ -104,6 +109,7 @@ export type UpsertVideoProductTagInput = {
   shopifyProductId: string;
   shopifyVariantId: string;
   productTitleSnapshot: string;
+  productHandleSnapshot: string | null;
   variantTitleSnapshot: string | null;
 };
 
@@ -134,6 +140,7 @@ export class VideoProductTagRepository {
         update: {
           shopifyProductId: input.shopifyProductId,
           productTitleSnapshot: input.productTitleSnapshot,
+          productHandleSnapshot: input.productHandleSnapshot,
           variantTitleSnapshot: input.variantTitleSnapshot,
           isActive: true,
         },
@@ -144,6 +151,7 @@ export class VideoProductTagRepository {
           shopifyProductId: input.shopifyProductId,
           shopifyVariantId: input.shopifyVariantId,
           productTitleSnapshot: input.productTitleSnapshot,
+          productHandleSnapshot: input.productHandleSnapshot,
           variantTitleSnapshot: input.variantTitleSnapshot,
           position: 0,
           isActive: true,
@@ -167,6 +175,7 @@ export class VideoProductTagRepository {
         },
         data: {
           productTitleSnapshot: input.productTitleSnapshot,
+          productHandleSnapshot: input.productHandleSnapshot,
           variantTitleSnapshot: input.variantTitleSnapshot,
           isActive: true,
         },
@@ -181,6 +190,7 @@ export class VideoProductTagRepository {
         shopifyProductId: input.shopifyProductId,
         shopifyVariantId: input.shopifyVariantId,
         productTitleSnapshot: input.productTitleSnapshot,
+        productHandleSnapshot: input.productHandleSnapshot,
         variantTitleSnapshot: input.variantTitleSnapshot,
         position: 0,
         isActive: true,

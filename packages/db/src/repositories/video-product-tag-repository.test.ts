@@ -16,6 +16,7 @@ function createTag(overrides: Partial<VideoProductTagRecord> = {}): VideoProduct
     shopifyProductId: "gid://shopify/Product/1",
     shopifyVariantId: "gid://shopify/ProductVariant/1",
     productTitleSnapshot: "Linen Shirt",
+    productHandleSnapshot: "linen-shirt",
     variantTitleSnapshot: "Small",
     productImageUrlSnapshot: null,
     priceSnapshot: null,
@@ -113,6 +114,7 @@ describe("VideoProductTagRepository", () => {
       shopifyProductId: "gid://shopify/Product/1",
       shopifyVariantId: "gid://shopify/ProductVariant/1",
       productTitleSnapshot: "Linen Shirt",
+      productHandleSnapshot: "linen-shirt",
       variantTitleSnapshot: "Small",
     });
 
@@ -122,6 +124,7 @@ describe("VideoProductTagRepository", () => {
       shopifyProductId: "gid://shopify/Product/1",
       shopifyVariantId: "gid://shopify/ProductVariant/1",
       productTitleSnapshot: "Linen Shirt",
+      productHandleSnapshot: "linen-shirt",
       variantTitleSnapshot: "Small",
       isActive: true,
     });
@@ -142,12 +145,14 @@ describe("VideoProductTagRepository", () => {
       shopifyProductId: "gid://shopify/Product/1",
       shopifyVariantId: "gid://shopify/ProductVariant/1",
       productTitleSnapshot: "Updated title",
+      productHandleSnapshot: "updated-title",
       variantTitleSnapshot: "Medium",
     });
 
     expect(tag).toMatchObject({
       id: "tag_1",
       productTitleSnapshot: "Updated title",
+      productHandleSnapshot: "updated-title",
       variantTitleSnapshot: "Medium",
       isActive: true,
     });

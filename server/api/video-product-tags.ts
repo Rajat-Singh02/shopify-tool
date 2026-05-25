@@ -9,12 +9,14 @@ import type { VideoUploadShop } from "./video-upload.js";
 
 const MAX_GID_LENGTH = 160;
 const MAX_TITLE_LENGTH = 180;
+const MAX_HANDLE_LENGTH = 255;
 
 export type SafeVideoProductTagDto = {
   id: string;
   videoId: string;
   productId: string;
   productTitle: string;
+  productHandle: string | null;
   variantId: string;
   variantTitle: string | null;
   createdAt: string;
@@ -80,6 +82,7 @@ export async function createVideoProductTag({
     shopifyProductId: tagInput.productId,
     shopifyVariantId: tagInput.variantId,
     productTitleSnapshot: tagInput.productTitle,
+    productHandleSnapshot: tagInput.productHandle,
     variantTitleSnapshot: tagInput.variantTitle,
   });
 
@@ -119,6 +122,7 @@ export function toSafeVideoProductTagDto(
     videoId: tag.videoId,
     productId: tag.shopifyProductId,
     productTitle: tag.productTitleSnapshot,
+    productHandle: tag.productHandleSnapshot,
     variantId: tag.shopifyVariantId,
     variantTitle: tag.variantTitleSnapshot,
     createdAt: tag.createdAt.toISOString(),
@@ -142,6 +146,7 @@ async function requireOwnedVideo(
 function parseCreateVideoProductTagInput(input: unknown): {
   productId: string;
   productTitle: string;
+  productHandle: string | null;
   variantId: string;
   variantTitle: string | null;
 } {
@@ -154,6 +159,7 @@ function parseCreateVideoProductTagInput(input: unknown): {
   return {
     productId: validateShopifyGid(record.productId, "Product", "productId is invalid"),
     productTitle: parseRequiredText(record.productTitle, "productTitle is required"),
+    productHandle: parseOptionalProductHandle(record.productHandle),
     variantId: validateShopifyGid(record.variantId, "ProductVariant", "variantId is invalid"),
     variantTitle: parseOptionalText(record.variantTitle),
   };
@@ -201,6 +207,28 @@ function parseOptionalText(value: unknown): string | null {
   const text = value.trim().replace(/\s+/g, " ").slice(0, MAX_TITLE_LENGTH);
 
   return text || null;
+}
+
+function parseOptionalProductHandle(value: unknown): string | null {
+  if (value === undefined || value === null || value === "") {
+    return null;
+  }
+
+  if (typeof value !== "string") {
+    throw new VideoProductTagExpectedError("productHandle is invalid", 400);
+  }
+
+  const handle = value.trim().toLowerCase();
+
+  if (
+    handle.length === 0 ||
+    handle.length > MAX_HANDLE_LENGTH ||
+    !/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(handle)
+  ) {
+    throw new VideoProductTagExpectedError("productHandle is invalid", 400);
+  }
+
+  return handle;
 }
 
 function validateVideoId(videoId: string): string {

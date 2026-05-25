@@ -11,6 +11,7 @@ export type VideoProductTag = {
   videoId: string;
   productId: string;
   productTitle: string;
+  productHandle: string | null;
   variantId: string;
   variantTitle: string | null;
   createdAt: string;
