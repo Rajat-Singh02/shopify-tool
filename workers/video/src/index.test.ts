@@ -7,6 +7,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { VideoRecord, VideoRepository } from "@shoppable-video/db";
 
 import {
+  createUnknownVideoMetadata,
   extractVideoMetadata,
   LocalVideoStorageResolver,
   parseFfprobeMetadata,
@@ -155,6 +156,28 @@ describe("video processing worker", () => {
     expect(runFfprobe).toHaveBeenCalledWith("/tmp/demo.mp4", {
       ffprobePath: "custom-ffprobe",
       timeoutMs: 5000,
+    });
+  });
+
+  it("reports unavailable ffprobe binaries distinctly from invalid video output", async () => {
+    await expect(
+      extractVideoMetadata("/tmp/demo.mp4", {
+        ffprobePath: "/definitely/missing/ffprobe",
+      }),
+    ).rejects.toMatchObject({
+      code: "FFPROBE_UNAVAILABLE",
+    });
+  });
+
+  it("creates safe unknown metadata for environments without ffprobe", () => {
+    expect(createUnknownVideoMetadata()).toEqual({
+      durationSeconds: null,
+      durationMs: null,
+      width: null,
+      height: null,
+      formatName: null,
+      videoCodec: null,
+      bitrate: null,
     });
   });
 

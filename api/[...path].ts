@@ -1,7 +1,14 @@
 import { createHash } from "node:crypto";
 import type { IncomingHttpHeaders, IncomingMessage, ServerResponse } from "node:http";
 
-import type * as VideoWorkerModule from "@shoppable-video/video-worker";
+import {
+  createLocalVideoStorageResolverFromEnv,
+  createUnknownVideoMetadata,
+  extractVideoMetadata,
+  processVideoJob,
+  VideoProcessingExpectedError,
+  type VideoMetadata,
+} from "@shoppable-video/video-worker";
 
 import {
   getAdminAnalyticsSummary,
@@ -2393,17 +2400,17 @@ function createVideoProcessingDispatcherFromEnv(
   return {
     async dispatchVideoProcessingJob({ videoId }) {
       const { getPrismaClient, VideoRepository } = await import("@shoppable-video/db");
-      const videoWorker =
-        (await import("@shoppable-video/video-worker")) as typeof VideoWorkerModule;
       const videoRepository = new VideoRepository(getPrismaClient());
+      const extractMetadata = createVideoMetadataExtractorFromEnv(env);
 
-      await videoWorker.processVideoJob(
+      await processVideoJob(
         {
           videoId,
         },
         {
           videoRepository,
-          storageResolver: videoWorker.createLocalVideoStorageResolverFromEnv(env),
+          storageResolver: createLocalVideoStorageResolverFromEnv(env),
+          extractMetadata,
         },
       );
 
@@ -2415,6 +2422,29 @@ function createVideoProcessingDispatcherFromEnv(
 
       return toSafeVideoDto(processedVideo);
     },
+  };
+}
+
+export function createVideoMetadataExtractorFromEnv(
+  env: NodeJS.ProcessEnv = process.env,
+): (filePath: string) => Promise<VideoMetadata> {
+  const ffprobePath = env.FFPROBE_PATH?.trim() || "ffprobe";
+
+  return async function extractMetadata(filePath: string): Promise<VideoMetadata> {
+    try {
+      return await extractVideoMetadata(filePath, {
+        ffprobePath,
+      });
+    } catch (error) {
+      if (
+        error instanceof VideoProcessingExpectedError &&
+        error.code === "FFPROBE_UNAVAILABLE"
+      ) {
+        return createUnknownVideoMetadata();
+      }
+
+      throw error;
+    }
   };
 }
 

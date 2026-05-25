@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   createDashboardShopContextDiagnostic,
+  createVideoMetadataExtractorFromEnv,
   handleVercelRuntimeRequest,
   resolveVercelRuntimeRoute,
 } from "../../api/[...path]";
@@ -19,6 +20,22 @@ describe("Vercel runtime route surface", () => {
   it("imports the serverless entry without app-source module resolution failures", () => {
     expect(typeof handleVercelRuntimeRequest).toBe("function");
     expect(typeof resolveVercelRuntimeRoute).toBe("function");
+  });
+
+  it("falls back to unknown video metadata when ffprobe is unavailable", async () => {
+    const extractMetadata = createVideoMetadataExtractorFromEnv({
+      FFPROBE_PATH: "/definitely/missing/ffprobe",
+    });
+
+    await expect(extractMetadata("/tmp/demo.mp4")).resolves.toEqual({
+      durationSeconds: null,
+      durationMs: null,
+      width: null,
+      height: null,
+      formatName: null,
+      videoCodec: null,
+      bitrate: null,
+    });
   });
 
   it.each([
