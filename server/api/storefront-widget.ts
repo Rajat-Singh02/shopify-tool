@@ -95,6 +95,7 @@ export function createStorefrontWidgetBootstrapScript(): string {
     style.textContent = [
       ":host{display:block;color:#111;font-family:inherit}",
       "*{box-sizing:border-box}",
+      ".sv-hidden{display:none!important}",
       ".sv-widget{width:100%;margin:28px 0;padding:0}",
       ".sv-header{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;margin:0 0 14px}",
       ".sv-title{font:inherit;font-size:24px;font-weight:700;line-height:1.2;margin:0;color:inherit}",
@@ -118,6 +119,11 @@ export function createStorefrontWidgetBootstrapScript(): string {
     container.setAttribute("role", "status");
     setText(container, message);
     root.appendChild(container);
+  };
+  const setVisible = (node, visible) => {
+    if (!node) return;
+    node.hidden = !visible;
+    node.classList.toggle("sv-hidden", !visible);
   };
   if (!shop || !widgetId) {
     renderMessage("Shoppable video widget is unavailable.");
@@ -245,7 +251,6 @@ export function createStorefrontWidgetBootstrapScript(): string {
         if (video.publicUrl) {
           const media = document.createElement("video");
           media.className = "sv-media";
-          media.src = video.publicUrl;
           media.autoplay = true;
           media.controls = false;
           media.defaultMuted = true;
@@ -260,25 +265,30 @@ export function createStorefrontWidgetBootstrapScript(): string {
           const muteButton = document.createElement("button");
           muteButton.className = "sv-mute";
           muteButton.type = "button";
-          muteButton.hidden = true;
+          setVisible(muteButton, false);
           setMuteText(muteButton, media);
           muteButtons.set(media, muteButton);
           widgetMedia.push(media);
+          const markMediaAvailable = () => {
+            setVisible(fallback, false);
+            setVisible(media, true);
+            setVisible(muteButton, true);
+            requestVideoPlay(media);
+          };
           media.addEventListener("play", () => sendEvent({ eventType: "VIDEO_PLAY", videoId: video.id }));
           media.addEventListener("pause", () => sendEvent({ eventType: "VIDEO_PAUSE", videoId: video.id }));
-          media.addEventListener("canplay", () => {
-            fallback.hidden = true;
-            muteButton.hidden = false;
-            requestVideoPlay(media);
-          }, { once: true });
+          media.addEventListener("loadedmetadata", markMediaAvailable);
+          media.addEventListener("loadeddata", markMediaAvailable);
+          media.addEventListener("canplay", markMediaAvailable);
+          media.addEventListener("playing", markMediaAvailable);
           media.addEventListener("error", () => {
-            media.hidden = true;
-            fallback.hidden = false;
-            muteButton.hidden = true;
+            setVisible(media, false);
+            setVisible(fallback, true);
+            setVisible(muteButton, false);
             setMediaMuted(media, true);
           });
           item.appendChild(media);
-          fallback.hidden = true;
+          setVisible(fallback, false);
           item.appendChild(fallback);
           muteButton.addEventListener("click", () => {
             if (media.muted) {
@@ -290,6 +300,7 @@ export function createStorefrontWidgetBootstrapScript(): string {
             requestVideoPlay(media);
           });
           item.appendChild(muteButton);
+          media.src = video.publicUrl;
           setTimeout(() => requestVideoPlay(media), 0);
         } else {
           item.appendChild(fallback);
