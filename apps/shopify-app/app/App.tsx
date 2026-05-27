@@ -6,6 +6,7 @@ import { AppErrorBoundary } from "../components/AppErrorBoundary";
 import { AppNavigation } from "../components/AppNavigation";
 import { DashboardPage } from "../routes/DashboardPage";
 import { ProductsPage } from "../routes/ProductsPage";
+import { VideoDetailPage } from "../routes/VideoDetailPage";
 import { VideosPage } from "../routes/VideosPage";
 import { WidgetsPage } from "../routes/WidgetsPage";
 import {
@@ -110,7 +111,16 @@ export function App({
     <AppErrorBoundary>
       <Frame navigation={<AppNavigation />}>
         <Routes>
-          <Route path="/" element={<DashboardPage dashboardState={dashboardState} />} />
+          <Route
+            path="/"
+            element={
+              <DashboardPage
+                dashboardState={dashboardState}
+                loadWidgets={loadWidgets}
+                loadVideoLibrary={loadVideoLibrary}
+              />
+            }
+          />
           <Route path="/products" element={<ProductsPage searchProducts={searchProducts} />} />
           <Route
             path="/videos"
@@ -118,6 +128,15 @@ export function App({
               <VideosPage
                 uploadVideo={uploadVideo}
                 loadVideoLibrary={loadVideoLibrary}
+                archiveVideo={archiveVideo}
+                retryVideoProcessing={retryVideoProcessing}
+              />
+            }
+          />
+          <Route
+            path="/videos/:videoId"
+            element={
+              <VideoDetailPage
                 loadVideoDetail={loadVideoDetail}
                 archiveVideo={archiveVideo}
                 retryVideoProcessing={retryVideoProcessing}
@@ -129,7 +148,7 @@ export function App({
             }
           />
           <Route
-            path="/widgets"
+            path="/widgets/*"
             element={
               <WidgetsPage
                 shopDomain={

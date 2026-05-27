@@ -1,5 +1,8 @@
 # Shoppable Video Theme Extension
 
-This directory is reserved for the Shopify theme app extension that will be implemented in Feature 8.
+This extension provides the smooth storefront install path for the manual-upload widget flow.
 
-Feature 0 intentionally does not expose an active storefront block. The v1 storefront widget will remain manual-upload only and will not include social import integrations.
+- `shoppable-video-app-embed.liquid` lets merchants enable one app embed and paste one or more widget IDs, separated by commas.
+- `shoppable-video-widget.liquid` lets merchants place one specific widget as a theme app block in a section.
+
+The v1 storefront widget remains manual-upload only and does not include social import integrations.

@@ -145,7 +145,7 @@ test("widgets show unavailable videos and attach ready candidates", async ({ pag
   });
 
   await page.goto("/widgets");
-  await page.getByRole("button", { name: "View details" }).click();
+  await page.getByRole("link", { name: "View details" }).click();
 
   await expect(page.getByText("Uploaded videos not ready yet")).toBeVisible();
   await expect(page.getByText("failed.mp4")).toBeVisible();
