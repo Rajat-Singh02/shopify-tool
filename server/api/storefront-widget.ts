@@ -93,13 +93,11 @@ export function createStorefrontWidgetBootstrapScript(): string {
   const renderStyles = () => {
     const style = document.createElement("style");
     style.textContent = [
-      ":host{display:block;color:#111;font-family:inherit}",
+      ":host{display:inline-block;max-width:100%;vertical-align:top;color:#111;font-family:inherit}",
       "*{box-sizing:border-box}",
       ".sv-hidden{display:none!important}",
-      ".sv-widget{width:100%;margin:28px 0;padding:0}",
-      ".sv-header{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;margin:0 0 14px}",
-      ".sv-title{font:inherit;font-size:24px;font-weight:700;line-height:1.2;margin:0;color:inherit}",
-      ".sv-list{display:flex;gap:16px;overflow-x:auto;overscroll-behavior-x:contain;scroll-snap-type:x mandatory;padding:2px 2px 12px}",
+      ".sv-widget{display:block;width:max-content;max-width:100%;margin:12px 14px 12px 0;padding:0}",
+      ".sv-list{display:flex;gap:16px;width:max-content;max-width:100%;overflow-x:auto;overscroll-behavior-x:contain;scroll-snap-type:x mandatory;padding:2px 2px 12px}",
       ".sv-list::-webkit-scrollbar{height:8px}",
       ".sv-list::-webkit-scrollbar-thumb{background:rgba(0,0,0,.18);border-radius:999px}",
       ".sv-reel{position:relative;flex:0 0 230px;aspect-ratio:9/16;overflow:hidden;border-radius:18px;background:#111;box-shadow:0 8px 24px rgba(0,0,0,.14);scroll-snap-align:start}",
@@ -109,7 +107,7 @@ export function createStorefrontWidgetBootstrapScript(): string {
       ".sv-products{position:absolute;left:10px;right:10px;bottom:10px;z-index:2;display:flex;flex-direction:column;gap:8px;margin:0;padding:0;list-style:none}",
       ".sv-product{display:block;width:100%;border:0;border-radius:12px;background:rgba(255,255,255,.94);color:#111;font:inherit;font-size:13px;font-weight:650;line-height:1.25;text-align:left;text-decoration:none;padding:10px 12px;box-shadow:0 4px 14px rgba(0,0,0,.18);cursor:pointer}",
       ".sv-empty{margin:0;color:rgba(0,0,0,.68);font-size:15px}",
-      "@media (max-width:640px){.sv-widget{margin:22px 0}.sv-title{font-size:20px}.sv-list{gap:12px}.sv-reel{flex-basis:190px;border-radius:16px}}"
+      "@media (max-width:640px){.sv-widget{margin:10px 12px 10px 0}.sv-list{gap:12px}.sv-reel{flex-basis:190px;border-radius:16px}}"
     ].join("");
     root.appendChild(style);
   };
@@ -225,14 +223,8 @@ export function createStorefrontWidgetBootstrapScript(): string {
       renderStyles();
       const container = document.createElement("section");
       container.className = "sv-widget";
-      container.setAttribute("aria-label", "Shoppable videos");
-      const header = document.createElement("div");
-      header.className = "sv-header";
-      const title = document.createElement("h2");
-      title.className = "sv-title";
-      setText(title, payload.widget && payload.widget.title ? payload.widget.title : "Shoppable videos");
-      header.appendChild(title);
-      container.appendChild(header);
+      const widgetTitle = payload.widget && payload.widget.title ? String(payload.widget.title) : "";
+      container.setAttribute("aria-label", widgetTitle ? "Shoppable videos: " + widgetTitle : "Shoppable videos");
       const list = document.createElement("div");
       list.className = "sv-list";
       const videos = Array.isArray(payload.videos) ? payload.videos : [];
