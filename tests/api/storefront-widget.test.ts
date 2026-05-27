@@ -255,6 +255,12 @@ describe("storefront widget service", () => {
     expect(script).toContain("media.muted = true");
     expect(script).toContain("sv-mute");
     expect(script).toContain(".sv-hidden{display:none!important}");
+    expect(script).toContain(":host{display:inline-block;max-width:100%;vertical-align:top");
+    expect(script).toContain(".sv-widget{display:block;width:max-content;max-width:100%");
+    expect(script).toContain(".sv-list{display:flex;gap:16px;width:max-content;max-width:100%");
+    expect(script).toContain("Shoppable videos: ");
+    expect(script).not.toContain("sv-title");
+    expect(script).not.toContain('document.createElement("h2")');
     expect(script).toContain("const setVisible = (node, visible)");
     expect(script).toContain("muteEventName");
     expect(script).toContain("window.dispatchEvent(new CustomEvent");
