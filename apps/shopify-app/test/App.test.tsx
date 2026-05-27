@@ -141,6 +141,54 @@ describe("admin app shell", () => {
     });
   });
 
+  it("renders the setup wizard with app embed guidance and published widget IDs", async () => {
+    const publishedWidget: AdminWidget = {
+      ...readyWidget,
+      status: "PUBLISHED",
+      videos: [readyVideo],
+    };
+    const writeText = vi.fn().mockResolvedValue(undefined);
+
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+
+    renderApp(
+      <App
+        initialDashboardState={readyDashboardState}
+        loadWidgets={() => Promise.resolve({ widgets: [publishedWidget] })}
+        loadVideoLibrary={() =>
+          Promise.resolve({
+            videos: [readyVideo],
+            pageInfo: {
+              hasNextPage: false,
+              endCursor: null,
+            },
+          })
+        }
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Setup wizard")).toBeInTheDocument();
+    });
+    expect(screen.getByText("4 / 4 completed")).toBeInTheDocument();
+    expect(screen.getByText("Theme app embed")).toBeInTheDocument();
+    expect(screen.getByLabelText("Published widget IDs")).toHaveTextContent("widget_1");
+    expect(screen.getByRole("link", { name: "Open theme editor" })).toHaveAttribute(
+      "href",
+      "https://admin.shopify.com/store/test-shop/themes/current/editor?context=apps",
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy widget IDs" }));
+
+    await waitFor(() => {
+      expect(writeText).toHaveBeenCalledWith("widget_1");
+    });
+    expect(screen.getByText("Copied")).toBeInTheDocument();
+  });
+
   it("renders the products page and searches products", async () => {
     const searchProducts = vi.fn().mockResolvedValue({
       products: [
