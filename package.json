@@ -11,6 +11,7 @@
     "dev": "npm run dev -w @shoppable-video/shopify-app",
     "build": "npm run build -w @shoppable-video/shared && npm run build -w @shoppable-video/db && npm run build -w @shoppable-video/shopify && npm run build -w @shoppable-video/testing && npm run build -w @shoppable-video/widget && npm run build -w @shoppable-video/video-worker && npm run build -w @shoppable-video/shopify-app",
     "vercel:build": "npm run db:generate && npm run build",
+    "deploy:preview": "bash scripts/deploy-preview.sh",
     "lint": "eslint .",
     "typecheck": "tsc -b",
     "test": "vitest run",
