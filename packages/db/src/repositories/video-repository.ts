@@ -61,6 +61,7 @@ export type VideoRepositoryClient = {
       orderBy: Array<{ createdAt: "desc" } | { id: "desc" }>;
       take: number;
     }): Promise<VideoRecord[]>;
+    count?(args: { where: VideoWhereInput }): Promise<number>;
     update(args: {
       where: { id: string };
       data:
@@ -173,6 +174,10 @@ export type ListVideosResult = {
     hasNextPage: boolean;
     endCursor: string | null;
   };
+  summary?: {
+    totalCount: number;
+    readyCount: number;
+  };
 };
 
 type VideoCursor = {
@@ -209,19 +214,31 @@ export class VideoRepository {
 
   async listByShop(input: ListVideosInput): Promise<ListVideosResult> {
     const where = createListVideosWhere(input);
-    const videos = await this.client.video.findMany({
-      where,
-      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-      take: input.first + 1,
-    });
+    const summaryWhere = createListVideosWhere({ ...input, after: null });
+    const readySummaryWhere = createListVideosWhere({ ...input, after: null, status: "READY" });
+    const [videos, totalCount, readyCount] = await Promise.all([
+      this.client.video.findMany({
+        where,
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        take: input.first + 1,
+      }),
+      this.client.video.count?.({ where: summaryWhere }),
+      this.client.video.count?.({ where: readySummaryWhere }),
+    ]);
     const visibleVideos = videos.slice(0, input.first);
     const lastVideo = visibleVideos.at(-1);
+    const inferredTotalCount =
+      videos.length > input.first ? visibleVideos.length + 1 : visibleVideos.length;
 
     return {
       videos: visibleVideos,
       pageInfo: {
         hasNextPage: videos.length > input.first,
         endCursor: lastVideo ? encodeVideoCursor(lastVideo) : null,
+      },
+      summary: {
+        totalCount: totalCount ?? inferredTotalCount,
+        readyCount: readyCount ?? visibleVideos.filter((video) => video.status === "READY").length,
       },
     };
   }

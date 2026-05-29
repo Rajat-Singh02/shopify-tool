@@ -1,10 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  VideoRepository,
-  type VideoRecord,
-  type VideoRepositoryClient,
-} from "./video-repository";
+import { VideoRepository, type VideoRecord, type VideoRepositoryClient } from "./video-repository";
 
 function createVideo(overrides: Partial<VideoRecord> = {}): VideoRecord {
   const now = new Date("2026-05-23T00:00:00.000Z");
@@ -34,15 +30,18 @@ function createVideo(overrides: Partial<VideoRecord> = {}): VideoRecord {
 function createClient(existingVideo: VideoRecord | null = null): {
   client: VideoRepositoryClient;
   created: VideoRecord[];
+  countedArgs: unknown[];
   foundManyArgs: unknown[];
   updated: VideoRecord[];
 } {
   const created: VideoRecord[] = [];
+  const countedArgs: unknown[] = [];
   const foundManyArgs: unknown[] = [];
   const updated: VideoRecord[] = [];
 
   return {
     created,
+    countedArgs,
     foundManyArgs,
     updated,
     client: {
@@ -67,7 +66,11 @@ function createClient(existingVideo: VideoRecord | null = null): {
           return Promise.resolve(existingVideo?.id === where.id ? existingVideo : null);
         },
         findFirst({ where }) {
-          if (existingVideo && existingVideo.id === where.id && existingVideo.shopId === where.shopId) {
+          if (
+            existingVideo &&
+            existingVideo.id === where.id &&
+            existingVideo.shopId === where.shopId
+          ) {
             return Promise.resolve(existingVideo);
           }
 
@@ -90,14 +93,19 @@ function createClient(existingVideo: VideoRecord | null = null): {
             ].slice(0, args.take),
           );
         },
+        count(args) {
+          countedArgs.push(args);
+
+          return Promise.resolve(args.where.status === "READY" ? 4 : 9);
+        },
         update({ data }) {
           const video = createVideo({
             ...(existingVideo ?? {}),
             ...data,
             storageKeyOriginal:
               "storageKeyOriginal" in data
-                ? data.storageKeyOriginal ?? existingVideo?.storageKeyOriginal ?? null
-                : existingVideo?.storageKeyOriginal ?? null,
+                ? (data.storageKeyOriginal ?? existingVideo?.storageKeyOriginal ?? null)
+                : (existingVideo?.storageKeyOriginal ?? null),
           });
 
           updated.push(video);
@@ -206,6 +214,10 @@ describe("VideoRepository", () => {
     expect(firstPage.pageInfo.hasNextPage).toBe(true);
     expect(firstPage.pageInfo.endCursor).toEqual(expect.any(String));
     expect(secondPage.videos).toHaveLength(1);
+    expect(firstPage.summary).toEqual({
+      totalCount: 4,
+      readyCount: 4,
+    });
     expect(foundManyArgs[0]).toMatchObject({
       where: {
         shopId: "shop_1",
@@ -237,8 +249,9 @@ describe("VideoRepository", () => {
     const repository = new VideoRepository(client);
 
     const archived = await repository.archiveByShop("shop_1", "video_1");
-    const repeated = await new VideoRepository(createClient(createVideo({ status: "ARCHIVED" })).client)
-      .archiveByShop("shop_1", "video_1");
+    const repeated = await new VideoRepository(
+      createClient(createVideo({ status: "ARCHIVED" })).client,
+    ).archiveByShop("shop_1", "video_1");
     const missing = await repository.archiveByShop("other_shop", "video_1");
 
     expect(archived).toMatchObject({
