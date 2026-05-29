@@ -1,0 +1,84 @@
+.DashboardWidgetPreview {
+  position: relative;
+  display: block;
+  flex: 0 0 96px;
+  width: 96px;
+  aspect-ratio: 9 / 14;
+  overflow: hidden;
+  border: 1px solid rgba(31, 33, 36, 0.12);
+  border-radius: 16px;
+  background: linear-gradient(180deg, rgba(16, 24, 40, 0.08), rgba(16, 24, 40, 0.72)), #202124;
+  box-shadow: 0 10px 28px rgba(20, 24, 31, 0.14);
+  transform: translateZ(0);
+  transition:
+    box-shadow 160ms ease,
+    transform 160ms ease;
+}
+
+.DashboardWidgetPreview:hover {
+  box-shadow: 0 14px 34px rgba(20, 24, 31, 0.2);
+  transform: translateY(-2px);
+}
+
+.DashboardWidgetPreview--empty {
+  display: flex;
+  width: 100%;
+  min-height: 124px;
+  aspect-ratio: auto;
+  align-items: center;
+  justify-content: center;
+  border-style: dashed;
+  background: #f6f6f7;
+  box-shadow: none;
+}
+
+.DashboardWidgetPreview__media {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.DashboardWidgetPreview__overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 8px;
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.2), transparent 42%, rgba(0, 0, 0, 0.72));
+}
+
+.DashboardWidgetPreview__overlay,
+.DashboardWidgetPreview__overlay * {
+  color: #fff;
+}
+
+.VideoLibraryGridCard {
+  height: 100%;
+  animation: shoppable-video-card-in 220ms ease-out both;
+}
+
+.VideoLibraryGridCard > * {
+  height: 100%;
+}
+
+@keyframes shoppable-video-card-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .DashboardWidgetPreview,
+  .VideoLibraryGridCard {
+    animation: none;
+    transition: none;
+  }
+}

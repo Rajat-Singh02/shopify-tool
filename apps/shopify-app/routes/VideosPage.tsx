@@ -5,6 +5,7 @@ import {
   Button,
   Card,
   EmptyState,
+  InlineGrid,
   InlineStack,
   Modal,
   Page,
@@ -81,6 +82,7 @@ const EMPTY_VIDEO_LIBRARY_RESULT: VideoLibraryResult = {
     endCursor: null,
   },
 };
+const VIDEO_LIBRARY_PAGE_SIZE = 5;
 
 export function VideosPage({
   uploadVideo = uploadManualVideo,
@@ -134,7 +136,7 @@ export function VideosPage({
           q: query,
           status: statusFilter,
           source: sourceFilter,
-          first: 20,
+          first: VIDEO_LIBRARY_PAGE_SIZE,
           after,
         });
 
@@ -171,7 +173,7 @@ export function VideosPage({
     let isMounted = true;
 
     loadVideoLibrary({
-      first: 20,
+      first: VIDEO_LIBRARY_PAGE_SIZE,
       q: "",
       status: "",
       source: "",
@@ -498,16 +500,19 @@ export function VideosPage({
 
         {libraryResult && libraryResult.videos.length > 0 ? (
           <BlockStack gap="300">
-            {libraryResult.videos.map((video) => (
-              <VideoLibraryCard
-                key={video.id}
-                video={video}
-                isArchiving={archiveLoadingId === video.id}
-                isRetrying={retryLoadingId === video.id}
-                onArchive={() => setVideoPendingArchive(video)}
-                onRetryProcessing={() => void handleRetryVideoProcessing(video)}
-              />
-            ))}
+            <InlineGrid columns={{ xs: 1, sm: 2, md: 3 }} gap="300">
+              {libraryResult.videos.map((video) => (
+                <div className="VideoLibraryGridCard" key={video.id}>
+                  <VideoLibraryCard
+                    video={video}
+                    isArchiving={archiveLoadingId === video.id}
+                    isRetrying={retryLoadingId === video.id}
+                    onArchive={() => setVideoPendingArchive(video)}
+                    onRetryProcessing={() => void handleRetryVideoProcessing(video)}
+                  />
+                </div>
+              ))}
+            </InlineGrid>
             <InlineStack align="center">
               <Button
                 onClick={() =>
@@ -624,32 +629,29 @@ function VideoLibraryCard({
           </BlockStack>
           <InlineStack gap="200">
             <Badge tone={toVideoStatusTone(video.status)}>{video.status}</Badge>
-            <Badge tone="info">{video.source}</Badge>
           </InlineStack>
         </InlineStack>
 
-        <InlineStack gap="400">
-          <Text as="p">Duration: {formatVideoDuration(video.durationMs)}</Text>
-          <Text as="p">Dimensions: {formatVideoDimensions(video)}</Text>
+        <InlineStack gap="300" wrap>
+          <Text as="span" tone="subdued">
+            {formatVideoDuration(video.durationMs)}
+          </Text>
+          <Text as="span" tone="subdued">
+            {formatVideoDimensions(video)}
+          </Text>
+          <Badge tone="info">{video.source}</Badge>
         </InlineStack>
 
         <Text as="p" tone={video.status === "READY" ? "success" : "subdued"}>
           {toVideoReadinessMessage(video.status)}
         </Text>
 
-        <BlockStack gap="050">
-          <Text as="p" tone="subdued">
-            Created: {formatVideoDate(video.createdAt)}
-          </Text>
-          <Text as="p" tone="subdued">
-            Updated: {formatVideoDate(video.updatedAt)}
-          </Text>
-        </BlockStack>
+        <Text as="p" tone="subdued">
+          Updated {formatVideoDate(video.updatedAt)}
+        </Text>
 
         <InlineStack gap="300">
-          <Button url={`/videos/${video.id}`}>
-            View details
-          </Button>
+          <Button url={`/videos/${video.id}`}>View details</Button>
           <Button
             tone="critical"
             onClick={onArchive}

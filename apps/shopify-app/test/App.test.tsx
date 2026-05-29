@@ -107,6 +107,50 @@ describe("admin app shell", () => {
     expect(screen.getByText("Manual upload only")).toBeInTheDocument();
   });
 
+  it("loads dashboard summary counts, setup actions, and widget previews", async () => {
+    const publishedWidget: AdminWidget = {
+      ...readyWidget,
+      status: "PUBLISHED",
+      videos: [readyVideo],
+    };
+    const loadWidgets = vi.fn().mockResolvedValue({ widgets: [publishedWidget] });
+    const loadVideoLibrary = vi.fn().mockResolvedValue({
+      videos: [readyVideo],
+      pageInfo: {
+        hasNextPage: true,
+        endCursor: "cursor-1",
+      },
+      summary: {
+        totalCount: 12,
+        readyCount: 7,
+      },
+    });
+
+    renderApp(
+      <App
+        initialDashboardState={readyDashboardState}
+        loadWidgets={loadWidgets}
+        loadVideoLibrary={loadVideoLibrary}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(loadWidgets).toHaveBeenCalled();
+    });
+    expect(loadVideoLibrary).toHaveBeenCalledWith({
+      first: 5,
+      source: "MANUAL_UPLOAD",
+    });
+    expect(screen.getByText("Homepage videos")).toBeInTheDocument();
+    expect(screen.getAllByText("12").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("7").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("demo.mp4").length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("link", { name: "Enable app embed" })[0]).toHaveAttribute(
+      "href",
+      expect.stringContaining("https://admin.shopify.com/store/test-shop/themes/current/editor"),
+    );
+  });
+
   it("renders a loading state while shop context loads", () => {
     renderApp(<App initialDashboardState={{ status: "loading" }} />);
 
@@ -584,15 +628,15 @@ describe("admin app shell", () => {
     });
 
     expect(loadVideoLibrary).toHaveBeenCalledWith({
-      first: 20,
+      first: 5,
       q: "",
       status: "",
       source: "",
       after: undefined,
     });
     expect(screen.getByText("video/mp4 · 4.0 MB")).toBeInTheDocument();
-    expect(screen.getByText("Duration: 1:05")).toBeInTheDocument();
-    expect(screen.getByText("Dimensions: 1920 x 1080")).toBeInTheDocument();
+    expect(screen.getByText("1:05")).toBeInTheDocument();
+    expect(screen.getByText("1920 x 1080")).toBeInTheDocument();
     expect(
       screen.getByText("Ready videos can be tagged and attached to widgets."),
     ).toBeInTheDocument();
@@ -686,7 +730,7 @@ describe("admin app shell", () => {
         q: "demo",
         status: "READY",
         source: "MANUAL_UPLOAD",
-        first: 20,
+        first: 5,
         after: undefined,
       });
     });
@@ -700,7 +744,7 @@ describe("admin app shell", () => {
       q: "demo",
       status: "READY",
       source: "MANUAL_UPLOAD",
-      first: 20,
+      first: 5,
       after: "cursor-2",
     });
   });

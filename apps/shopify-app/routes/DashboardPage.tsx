@@ -8,7 +8,9 @@ import {
   InlineGrid,
   InlineStack,
   Layout,
+  Modal,
   Page,
+  ProgressBar,
   SkeletonBodyText,
   Text,
 } from "@shopify/polaris";
@@ -24,17 +26,50 @@ import {
 } from "../services/video-library";
 import { formatVideoFileSize } from "../services/video-upload";
 
+const DASHBOARD_VIDEO_PAGE_SIZE = 5;
+const SHOPIFY_CLIENT_ID = "507ec4018317a9c292eed04878307f58";
+const APP_EMBED_HANDLE = "shoppable-video-app-embed";
+
 type DashboardPageProps = {
   dashboardState: AdminDashboardState;
   loadWidgets?: AdminWidgetListClient;
   loadVideoLibrary?: VideoLibraryClient;
 };
 
+type DashboardVideoSummary = {
+  totalCount: number;
+  readyCount: number;
+};
+
 type DashboardSummaryState =
-  | { status: "idle"; widgets: AdminWidget[]; videos: VideoLibraryItem[]; message?: undefined }
-  | { status: "loading"; widgets: AdminWidget[]; videos: VideoLibraryItem[]; message?: undefined }
-  | { status: "ready"; widgets: AdminWidget[]; videos: VideoLibraryItem[]; message?: undefined }
-  | { status: "error"; widgets: AdminWidget[]; videos: VideoLibraryItem[]; message: string };
+  | {
+      status: "idle";
+      widgets: AdminWidget[];
+      videos: VideoLibraryItem[];
+      videoSummary: DashboardVideoSummary;
+      message?: undefined;
+    }
+  | {
+      status: "loading";
+      widgets: AdminWidget[];
+      videos: VideoLibraryItem[];
+      videoSummary: DashboardVideoSummary;
+      message?: undefined;
+    }
+  | {
+      status: "ready";
+      widgets: AdminWidget[];
+      videos: VideoLibraryItem[];
+      videoSummary: DashboardVideoSummary;
+      message?: undefined;
+    }
+  | {
+      status: "error";
+      widgets: AdminWidget[];
+      videos: VideoLibraryItem[];
+      videoSummary: DashboardVideoSummary;
+      message: string;
+    };
 
 export function DashboardPage({
   dashboardState,
@@ -45,7 +80,13 @@ export function DashboardPage({
     status: "idle",
     widgets: [],
     videos: [],
+    videoSummary: {
+      totalCount: 0,
+      readyCount: 0,
+    },
   });
+  const [isSetupWizardOpen, setIsSetupWizardOpen] = useState(false);
+  const [setupStepIndex, setSetupStepIndex] = useState(0);
   const canLoadSummary = dashboardState.status === "ready" && Boolean(loadWidgets);
 
   useEffect(() => {
@@ -66,22 +107,31 @@ export function DashboardPage({
         status: "loading",
         widgets: currentState.widgets,
         videos: currentState.videos,
+        videoSummary: currentState.videoSummary,
       }));
 
       try {
         const [widgetResult, videoResult] = await Promise.all([
           loadWidgets?.(),
           loadVideoLibrary({
-            first: 6,
+            first: DASHBOARD_VIDEO_PAGE_SIZE,
             source: "MANUAL_UPLOAD",
           }),
         ]);
 
         if (isMounted && widgetResult) {
+          const fallbackReadyCount = videoResult.videos.filter(
+            (video) => video.status === "READY",
+          ).length;
+
           setSummaryState({
             status: "ready",
             widgets: widgetResult.widgets,
             videos: videoResult.videos,
+            videoSummary: {
+              totalCount: videoResult.summary?.totalCount ?? videoResult.videos.length,
+              readyCount: videoResult.summary?.readyCount ?? fallbackReadyCount,
+            },
           });
         }
       } catch {
@@ -90,6 +140,7 @@ export function DashboardPage({
             status: "error",
             widgets: currentState.widgets,
             videos: currentState.videos,
+            videoSummary: currentState.videoSummary,
             message: "We could not load the dashboard summary. Reload the app from Shopify admin.",
           }));
         }
@@ -103,21 +154,28 @@ export function DashboardPage({
     };
   }, [canLoadSummary, loadVideoLibrary, loadWidgets]);
 
-  const readyVideos = useMemo(
-    () => summaryState.videos.filter((video) => video.status === "READY"),
-    [summaryState.videos],
-  );
   const publishedWidgets = useMemo(
     () => summaryState.widgets.filter((widget) => widget.status === "PUBLISHED"),
     [summaryState.widgets],
   );
+  const totalVideoCount = summaryState.videoSummary.totalCount;
+  const readyVideoCount = summaryState.videoSummary.readyCount;
+  const themeEditorUrl =
+    dashboardState.status === "ready"
+      ? buildThemeEditorAppEmbedUrl(dashboardState.data.shop.domain)
+      : undefined;
+  const setupWizardStep = SETUP_WIZARD_STEPS[setupStepIndex];
+  const setupProgress = Math.round(((setupStepIndex + 1) / SETUP_WIZARD_STEPS.length) * 100);
 
   return (
     <Page
       title="Shoppable Video"
       subtitle="Upload videos, tag products, publish widgets, and add them to your storefront"
       primaryAction={{ content: "Upload video", url: "/videos" }}
-      secondaryActions={[{ content: "Create widget", url: "/widgets/new" }]}
+      secondaryActions={[
+        { content: "See how it works", onAction: () => setIsSetupWizardOpen(true) },
+        { content: "Create widget", url: "/widgets/new" },
+      ]}
     >
       <Layout>
         <Layout.Section>
@@ -157,6 +215,14 @@ export function DashboardPage({
                     Follow the four-step flow below to get a shoppable reel live without digging
                     through separate pages.
                   </Text>
+                  <InlineStack gap="300">
+                    {themeEditorUrl ? (
+                      <Button url={themeEditorUrl} target="_blank">
+                        Enable app embed
+                      </Button>
+                    ) : null}
+                    <Button onClick={() => setIsSetupWizardOpen(true)}>See how it works</Button>
+                  </InlineStack>
                 </BlockStack>
               </Card>
 
@@ -170,14 +236,14 @@ export function DashboardPage({
                 <SetupStep
                   index={1}
                   title="Upload video"
-                  state={summaryState.videos.length > 0 ? "Done" : "Start"}
+                  state={totalVideoCount > 0 ? "Done" : "Start"}
                   actionLabel="Open videos"
                   actionUrl="/videos"
                 />
                 <SetupStep
                   index={2}
                   title="Tag product"
-                  state={readyVideos.length > 0 ? "Ready" : "Waiting"}
+                  state={readyVideoCount > 0 ? "Ready" : "Waiting"}
                   actionLabel="Tag in video detail"
                   actionUrl="/videos"
                 />
@@ -192,16 +258,17 @@ export function DashboardPage({
                   index={4}
                   title="Add to storefront"
                   state={publishedWidgets.length > 0 ? "Ready" : "Waiting"}
-                  actionLabel="Install widget"
-                  actionUrl={publishedWidgets[0] ? `/widgets/${publishedWidgets[0].id}` : "/widgets"}
+                  actionLabel="Enable app embed"
+                  actionUrl={themeEditorUrl ?? "/widgets"}
+                  external={Boolean(themeEditorUrl)}
                 />
               </InlineGrid>
 
               <InlineGrid columns={{ xs: 1, sm: 2, md: 4 }} gap="300">
                 <MetricCard label="Widgets" value={summaryState.widgets.length} />
                 <MetricCard label="Published" value={publishedWidgets.length} />
-                <MetricCard label="Videos" value={summaryState.videos.length} />
-                <MetricCard label="Ready videos" value={readyVideos.length} />
+                <MetricCard label="Videos" value={totalVideoCount} />
+                <MetricCard label="Ready videos" value={readyVideoCount} />
               </InlineGrid>
 
               <BlockStack gap="300">
@@ -226,7 +293,11 @@ export function DashboardPage({
                 {summaryState.widgets.length > 0 ? (
                   <InlineGrid columns={{ xs: 1, sm: 2, md: 3 }} gap="300">
                     {summaryState.widgets.slice(0, 6).map((widget) => (
-                      <DashboardWidgetCard key={widget.id} widget={widget} />
+                      <DashboardWidgetCard
+                        key={widget.id}
+                        widget={widget}
+                        shopDomain={dashboardState.data.shop.domain}
+                      />
                     ))}
                   </InlineGrid>
                 ) : null}
@@ -257,6 +328,65 @@ export function DashboardPage({
           ) : null}
         </Layout.Section>
       </Layout>
+      <Modal
+        open={isSetupWizardOpen}
+        onClose={() => setIsSetupWizardOpen(false)}
+        title="See how it works"
+        primaryAction={{
+          content:
+            setupStepIndex < SETUP_WIZARD_STEPS.length - 1
+              ? "Next step"
+              : (setupWizardStep?.actionLabel ?? "Finish"),
+          onAction: () => {
+            if (setupStepIndex < SETUP_WIZARD_STEPS.length - 1) {
+              setSetupStepIndex((index) => index + 1);
+              return;
+            }
+
+            setIsSetupWizardOpen(false);
+          },
+        }}
+        secondaryActions={[
+          {
+            content: setupStepIndex === 0 ? "Close" : "Previous",
+            onAction: () => {
+              if (setupStepIndex === 0) {
+                setIsSetupWizardOpen(false);
+                return;
+              }
+
+              setSetupStepIndex((index) => Math.max(0, index - 1));
+            },
+          },
+          ...(setupWizardStep?.actionUrl
+            ? [
+                {
+                  content: setupWizardStep.actionLabel,
+                  url:
+                    setupWizardStep.kind === "app-embed" && themeEditorUrl
+                      ? themeEditorUrl
+                      : setupWizardStep.actionUrl,
+                  external: setupWizardStep.kind === "app-embed",
+                },
+              ]
+            : []),
+        ]}
+      >
+        <Modal.Section>
+          <BlockStack gap="400">
+            <ProgressBar progress={setupProgress} tone="primary" size="small" />
+            <BlockStack gap="200">
+              <Text as="p" tone="subdued">
+                Step {setupStepIndex + 1} of {SETUP_WIZARD_STEPS.length}
+              </Text>
+              <Text as="h3" variant="headingMd">
+                {setupWizardStep?.title}
+              </Text>
+              <Text as="p">{setupWizardStep?.description}</Text>
+            </BlockStack>
+          </BlockStack>
+        </Modal.Section>
+      </Modal>
     </Page>
   );
 }
@@ -267,12 +397,14 @@ function SetupStep({
   state,
   actionLabel,
   actionUrl,
+  external = false,
 }: {
   index: number;
   title: string;
   state: "Done" | "Ready" | "Start" | "Waiting";
   actionLabel: string;
   actionUrl: string;
+  external?: boolean;
 }) {
   return (
     <Card>
@@ -286,7 +418,9 @@ function SetupStep({
         <Text as="h3" variant="headingMd">
           {title}
         </Text>
-        <Button url={actionUrl}>{actionLabel}</Button>
+        <Button url={actionUrl} target={external ? "_blank" : undefined}>
+          {actionLabel}
+        </Button>
       </BlockStack>
     </Card>
   );
@@ -307,7 +441,9 @@ function MetricCard({ label, value }: { label: string; value: number }) {
   );
 }
 
-function DashboardWidgetCard({ widget }: { widget: AdminWidget }) {
+function DashboardWidgetCard({ widget, shopDomain }: { widget: AdminWidget; shopDomain: string }) {
+  const previewVideos = widget.videos.slice(0, 3);
+
   return (
     <Card>
       <BlockStack gap="300">
@@ -325,9 +461,64 @@ function DashboardWidgetCard({ widget }: { widget: AdminWidget }) {
             Updated {formatDashboardDate(widget.updatedAt)}
           </Text>
         </BlockStack>
+        {previewVideos.length > 0 ? (
+          <InlineStack gap="200" wrap={false}>
+            {previewVideos.map((video) => (
+              <DashboardWidgetVideoPreview
+                key={video.id}
+                widget={widget}
+                video={video}
+                shopDomain={shopDomain}
+              />
+            ))}
+          </InlineStack>
+        ) : (
+          <div className="DashboardWidgetPreview DashboardWidgetPreview--empty">
+            <Text as="p" tone="subdued">
+              No videos attached yet
+            </Text>
+          </div>
+        )}
         <Button url={`/widgets/${widget.id}`}>Manage widget</Button>
       </BlockStack>
     </Card>
+  );
+}
+
+function DashboardWidgetVideoPreview({
+  widget,
+  video,
+  shopDomain,
+}: {
+  widget: AdminWidget;
+  video: VideoLibraryItem;
+  shopDomain: string;
+}) {
+  const canPreviewMedia = widget.status === "PUBLISHED" && video.status === "READY";
+  const mediaUrl = canPreviewMedia
+    ? `/api/storefront/widgets/${encodeURIComponent(widget.id)}/videos/${encodeURIComponent(
+        video.id,
+      )}/media?shop=${encodeURIComponent(shopDomain)}`
+    : undefined;
+
+  return (
+    <div className="DashboardWidgetPreview" title={video.originalFilename}>
+      {mediaUrl ? (
+        <video
+          className="DashboardWidgetPreview__media"
+          src={mediaUrl}
+          muted
+          playsInline
+          preload="metadata"
+        />
+      ) : null}
+      <div className="DashboardWidgetPreview__overlay">
+        <Badge tone={video.status === "READY" ? "success" : "info"}>{video.status}</Badge>
+        <Text as="span" variant="bodySm">
+          {video.originalFilename}
+        </Text>
+      </div>
+    </div>
   );
 }
 
@@ -358,4 +549,53 @@ function formatDashboardDate(value: string): string {
     dateStyle: "medium",
     timeStyle: "short",
   });
+}
+
+type SetupWizardStep = {
+  title: string;
+  description: string;
+  actionLabel: string;
+  actionUrl: string;
+  kind?: "app-embed";
+};
+
+const SETUP_WIZARD_STEPS: SetupWizardStep[] = [
+  {
+    title: "Upload one short product video",
+    description:
+      "Go to Videos, upload an MP4, and wait for it to become Ready. Ready is the safety gate before a video can appear on a storefront widget.",
+    actionLabel: "Open videos",
+    actionUrl: "/videos",
+  },
+  {
+    title: "Tag the product variant",
+    description:
+      "Open the video detail page, search for the Shopify product, and attach the variant that should open when shoppers tap the product card.",
+    actionLabel: "Open videos",
+    actionUrl: "/videos",
+  },
+  {
+    title: "Create and publish a widget",
+    description:
+      "Create a widget, attach Ready videos from the inline grid, then publish it. Draft widgets are kept out of the storefront.",
+    actionLabel: "Create widget",
+    actionUrl: "/widgets/new",
+  },
+  {
+    title: "Enable the app embed",
+    description:
+      "Open the theme editor, enable the Shoppable Video app embed, and paste the widget IDs you want to render. This is the smooth path for multiple storefront placements.",
+    actionLabel: "Enable app embed",
+    actionUrl: "/widgets",
+    kind: "app-embed",
+  },
+];
+
+function buildThemeEditorAppEmbedUrl(shopDomain: string): string {
+  const storeHandle = shopDomain.replace(/\.myshopify\.com$/i, "");
+  const activateAppId = `${SHOPIFY_CLIENT_ID}/${APP_EMBED_HANDLE}`;
+
+  return `https://admin.shopify.com/store/${encodeURIComponent(
+    storeHandle,
+  )}/themes/current/editor?context=apps&activateAppId=${encodeURIComponent(activateAppId)}`;
 }

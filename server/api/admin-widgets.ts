@@ -24,9 +24,12 @@ export type SafeAdminWidgetDto = {
     status: VideoRecord["status"];
     source: VideoRecord["source"];
     contentType: string;
+    sizeBytes: number | string;
     durationMs: number | null;
     width: number | null;
     height: number | null;
+    createdAt: string;
+    updatedAt: string;
   }>;
 };
 
@@ -136,8 +139,10 @@ export async function attachAdminWidgetVideo({
   }
 
   const nextPosition =
-    widget.widgetVideos.reduce((position, widgetVideo) => Math.max(position, widgetVideo.position), -1) +
-    1;
+    widget.widgetVideos.reduce(
+      (position, widgetVideo) => Math.max(position, widgetVideo.position),
+      -1,
+    ) + 1;
 
   await widgetRepository.attachVideo(shop.id, widget.id, video, nextPosition);
   const updatedWidget = await widgetRepository.findByShop(shop.id, widget.id);
@@ -183,9 +188,15 @@ export function toSafeAdminWidgetDto(widget: AdminWidgetRecord): SafeAdminWidget
       status: video.status,
       source: video.source,
       contentType: video.originalMimeType,
+      sizeBytes:
+        video.originalSizeBytes <= BigInt(Number.MAX_SAFE_INTEGER)
+          ? Number(video.originalSizeBytes)
+          : video.originalSizeBytes.toString(),
       durationMs: video.durationMs,
       width: video.width,
       height: video.height,
+      createdAt: video.createdAt.toISOString(),
+      updatedAt: video.updatedAt.toISOString(),
     })),
   };
 }

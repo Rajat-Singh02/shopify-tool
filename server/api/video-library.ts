@@ -41,6 +41,10 @@ export type VideoLibraryListResponse = {
     hasNextPage: boolean;
     endCursor: string | null;
   };
+  summary?: {
+    totalCount: number;
+    readyCount: number;
+  };
 };
 
 export type VideoLibraryListQuery = {
@@ -73,11 +77,16 @@ export async function listVideoLibrary({
 }): Promise<VideoLibraryListResponse> {
   const input = parseVideoLibraryListInput(shop.id, query);
   const result = await videoRepository.listByShop(input);
-
-  return {
+  const response: VideoLibraryListResponse = {
     videos: result.videos.map(toSafeVideoLibraryDto),
     pageInfo: result.pageInfo,
   };
+
+  if (result.summary) {
+    response.summary = result.summary;
+  }
+
+  return response;
 }
 
 export async function getVideoLibraryDetail({

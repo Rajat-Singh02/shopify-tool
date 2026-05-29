@@ -27,6 +27,10 @@ export type VideoLibraryResult = {
     hasNextPage: boolean;
     endCursor: string | null;
   };
+  summary?: {
+    totalCount: number;
+    readyCount: number;
+  };
 };
 
 export type VideoLibraryParams = {
