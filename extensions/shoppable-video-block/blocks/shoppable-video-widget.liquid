@@ -1,0 +1,35 @@
+{% liquid
+  assign shoppable_app_url = block.settings.app_url | default: 'https://shopify-tool-live-git-main-rajat-sahadev-s-projects.vercel.app'
+  assign widget_id = block.settings.widget_id | strip
+%}
+
+{% if widget_id != blank %}
+  <div class="shoppable-video-widget-block">
+    <script
+      async
+      src="{{ shoppable_app_url }}/widget.js"
+      data-shop="{{ shop.permanent_domain }}"
+      data-widget-id="{{ widget_id | escape }}"
+    ></script>
+  </div>
+{% endif %}
+
+{% schema %}
+{
+  "name": "Shoppable video widget",
+  "target": "section",
+  "settings": [
+    {
+      "type": "text",
+      "id": "widget_id",
+      "label": "Widget ID"
+    },
+    {
+      "type": "text",
+      "id": "app_url",
+      "label": "App URL",
+      "default": "https://shopify-tool-live-git-main-rajat-sahadev-s-projects.vercel.app"
+    }
+  ]
+}
+{% endschema %}

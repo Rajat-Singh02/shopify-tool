@@ -711,45 +711,34 @@ describe("admin app shell", () => {
       status: "ARCHIVED",
       updatedAt: "2026-05-23T00:10:00.000Z",
     };
-    const loadVideoLibrary = vi.fn().mockResolvedValue({
-      videos: [readyVideo],
-      pageInfo: {
-        hasNextPage: false,
-        endCursor: null,
-      },
-    });
     const loadVideoDetail = vi.fn().mockResolvedValue(readyVideo);
     const archiveVideo = vi.fn().mockResolvedValue(archivedVideo);
-
-    vi.stubGlobal(
-      "confirm",
-      vi.fn(() => true),
-    );
 
     renderApp(
       <App
         initialDashboardState={readyDashboardState}
-        loadVideoLibrary={loadVideoLibrary}
         loadVideoDetail={loadVideoDetail}
         archiveVideo={archiveVideo}
         loadVideoProductTags={() => Promise.resolve(emptyVideoTagsResult)}
       />,
-      ["/videos"],
+      ["/videos/video_1"],
     );
 
     await waitFor(() => {
-      expect(screen.getByText("demo.mp4")).toBeInTheDocument();
+      expect(loadVideoDetail).toHaveBeenCalledWith("video_1");
     });
-
-    fireEvent.click(screen.getByRole("button", { name: "View details" }));
-
-    await waitFor(() => {
-      expect(screen.getByText("Video details")).toBeInTheDocument();
-    });
-    expect(loadVideoDetail).toHaveBeenCalledWith("video_1");
     expect(screen.getByText("ID: video_1")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Archive" }));
+    expect(screen.getByText("Archive video?")).toBeInTheDocument();
+    const archiveButtons = screen.getAllByRole("button", { name: "Archive" });
+    const modalArchiveButton = archiveButtons[archiveButtons.length - 1];
+
+    if (!modalArchiveButton) {
+      throw new Error("Expected modal archive button");
+    }
+
+    fireEvent.click(modalArchiveButton);
 
     await waitFor(() => {
       expect(archiveVideo).toHaveBeenCalledWith("video_1");
@@ -759,7 +748,7 @@ describe("admin app shell", () => {
     expect(document.body.textContent).not.toContain("/tmp/shoppable-video-storage");
   });
 
-  it("opens uploaded video details immediately while detail refresh is pending", async () => {
+  it("shows loading then safe readiness guidance for uploaded video details", async () => {
     const uploadedVideo: VideoLibraryItem = {
       ...readyVideo,
       id: "video_uploaded",
@@ -770,13 +759,6 @@ describe("admin app shell", () => {
       updatedAt: "2026-05-23T00:07:00.000Z",
     };
     let resolveDetail: (video: VideoLibraryItem) => void = () => undefined;
-    const loadVideoLibrary = vi.fn().mockResolvedValue({
-      videos: [uploadedVideo],
-      pageInfo: {
-        hasNextPage: false,
-        endCursor: null,
-      },
-    });
     const loadVideoDetail = vi.fn(
       () =>
         new Promise<VideoLibraryItem>((resolve) => {
@@ -788,29 +770,26 @@ describe("admin app shell", () => {
     renderApp(
       <App
         initialDashboardState={readyDashboardState}
-        loadVideoLibrary={loadVideoLibrary}
         loadVideoDetail={loadVideoDetail}
         loadVideoProductTags={loadVideoProductTags}
       />,
-      ["/videos"],
+      ["/videos/video_uploaded"],
     );
 
     await waitFor(() => {
-      expect(screen.getByText("demo.mp4")).toBeInTheDocument();
+      expect(loadVideoDetail).toHaveBeenCalledWith("video_uploaded");
     });
-
-    fireEvent.click(screen.getByRole("button", { name: "View details" }));
-
-    expect(loadVideoDetail).toHaveBeenCalledWith("video_uploaded");
-    await waitFor(() => {
-      expect(screen.getByText("Video details")).toBeInTheDocument();
-    });
-    expect(screen.getByText("ID: video_uploaded")).toBeInTheDocument();
-    expect(screen.getByText("Status: UPLOADED")).toBeInTheDocument();
-    expect(screen.getByText("Video not ready for product tags")).toBeInTheDocument();
-    expect(loadVideoProductTags).not.toHaveBeenCalled();
+    expect(screen.getAllByText("Loading video details").length).toBeGreaterThan(0);
 
     resolveDetail(uploadedVideo);
+
+    await waitFor(() => {
+      expect(screen.getByText("ID: video_uploaded")).toBeInTheDocument();
+    });
+    expect(
+      screen.getByText("Product tagging is available when the video is ready"),
+    ).toBeInTheDocument();
+    expect(loadVideoProductTags).not.toHaveBeenCalled();
   });
 
   it("retries processing for uploaded and failed manual videos", async () => {
@@ -862,13 +841,6 @@ describe("admin app shell", () => {
   });
 
   it("loads tags and adds a variant-level product tag from product search", async () => {
-    const loadVideoLibrary = vi.fn().mockResolvedValue({
-      videos: [readyVideo],
-      pageInfo: {
-        hasNextPage: false,
-        endCursor: null,
-      },
-    });
     const loadVideoProductTags = vi.fn().mockResolvedValue(emptyVideoTagsResult);
     const createVideoProductTag = vi.fn().mockResolvedValue(readyVideoTag);
     const searchProducts = vi.fn().mockResolvedValue({
@@ -899,20 +871,13 @@ describe("admin app shell", () => {
     renderApp(
       <App
         initialDashboardState={readyDashboardState}
-        loadVideoLibrary={loadVideoLibrary}
         loadVideoDetail={() => Promise.resolve(readyVideo)}
         loadVideoProductTags={loadVideoProductTags}
         createVideoProductTag={createVideoProductTag}
         searchProducts={searchProducts}
       />,
-      ["/videos"],
+      ["/videos/video_1"],
     );
-
-    await waitFor(() => {
-      expect(screen.getByText("demo.mp4")).toBeInTheDocument();
-    });
-
-    fireEvent.click(screen.getByRole("button", { name: "View details" }));
 
     await waitFor(() => {
       expect(loadVideoProductTags).toHaveBeenCalledWith("video_1");
@@ -955,27 +920,12 @@ describe("admin app shell", () => {
     renderApp(
       <App
         initialDashboardState={readyDashboardState}
-        loadVideoLibrary={() =>
-          Promise.resolve({
-            videos: [readyVideo],
-            pageInfo: {
-              hasNextPage: false,
-              endCursor: null,
-            },
-          })
-        }
         loadVideoDetail={() => Promise.resolve(readyVideo)}
         loadVideoProductTags={loadVideoProductTags}
         deleteVideoProductTag={deleteVideoProductTag}
       />,
-      ["/videos"],
+      ["/videos/video_1"],
     );
-
-    await waitFor(() => {
-      expect(screen.getByText("demo.mp4")).toBeInTheDocument();
-    });
-
-    fireEvent.click(screen.getByRole("button", { name: "View details" }));
 
     await waitFor(() => {
       expect(screen.getByText("Variant: Small")).toBeInTheDocument();
@@ -1024,27 +974,12 @@ describe("admin app shell", () => {
     renderApp(
       <App
         initialDashboardState={readyDashboardState}
-        loadVideoLibrary={() =>
-          Promise.resolve({
-            videos: [readyVideo],
-            pageInfo: {
-              hasNextPage: false,
-              endCursor: null,
-            },
-          })
-        }
         loadVideoDetail={() => Promise.resolve(readyVideo)}
         loadVideoProductTags={() => Promise.reject(new Error("raw tag backend failure"))}
         searchProducts={searchProducts}
       />,
-      ["/videos"],
+      ["/videos/video_1"],
     );
-
-    await waitFor(() => {
-      expect(screen.getByText("demo.mp4")).toBeInTheDocument();
-    });
-
-    fireEvent.click(screen.getByRole("button", { name: "View details" }));
 
     await waitFor(() => {
       expect(screen.getByText("Product tags unavailable")).toBeInTheDocument();
@@ -1072,26 +1007,11 @@ describe("admin app shell", () => {
     renderApp(
       <App
         initialDashboardState={readyDashboardState}
-        loadVideoLibrary={() =>
-          Promise.resolve({
-            videos: [archivedVideo],
-            pageInfo: {
-              hasNextPage: false,
-              endCursor: null,
-            },
-          })
-        }
         loadVideoDetail={() => Promise.resolve(archivedVideo)}
         loadVideoProductTags={() => Promise.resolve(emptyVideoTagsResult)}
       />,
-      ["/videos"],
+      ["/videos/video_1"],
     );
-
-    await waitFor(() => {
-      expect(screen.getByText("demo.mp4")).toBeInTheDocument();
-    });
-
-    fireEvent.click(screen.getByRole("button", { name: "View details" }));
 
     await waitFor(() => {
       expect(screen.getByText("Archived videos cannot be tagged.")).toBeInTheDocument();
@@ -1103,24 +1023,21 @@ describe("admin app shell", () => {
   });
 
   it("renders the widgets page and creates a widget", async () => {
-    const loadWidgets = vi.fn().mockResolvedValue({ widgets: [] });
     const createWidget = vi.fn().mockResolvedValue(readyWidget);
+    const loadWidgetDetail = vi.fn().mockResolvedValue(readyWidget);
 
     renderApp(
       <App
         initialDashboardState={readyDashboardState}
-        loadWidgets={loadWidgets}
+        loadWidgets={() => Promise.resolve({ widgets: [] })}
+        loadWidgetDetail={loadWidgetDetail}
         createWidget={createWidget}
         loadVideoLibrary={() => Promise.resolve(emptyVideoLibraryResult)}
       />,
-      ["/widgets"],
+      ["/widgets/new"],
     );
 
-    expect(screen.getByRole("heading", { name: "Widgets" })).toBeInTheDocument();
-
-    await waitFor(() => {
-      expect(screen.getByText("No widgets yet")).toBeInTheDocument();
-    });
+    expect(screen.getByRole("heading", { name: "Create widget" })).toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText("Widget title"), {
       target: { value: "Homepage videos" },
@@ -1129,6 +1046,9 @@ describe("admin app shell", () => {
 
     await waitFor(() => {
       expect(createWidget).toHaveBeenCalledWith({ title: "Homepage videos" });
+    });
+    await waitFor(() => {
+      expect(loadWidgetDetail).toHaveBeenCalledWith("widget_1");
     });
     expect(screen.getByText("Homepage videos")).toBeInTheDocument();
     expect(document.body.textContent).not.toContain("shopify-id-token");
@@ -1140,16 +1060,23 @@ describe("admin app shell", () => {
       ...readyWidget,
       videos: [readyVideo],
     };
-    const loadWidgets = vi.fn().mockResolvedValue({ widgets: [readyWidget] });
     const loadWidgetDetail = vi
       .fn()
       .mockResolvedValueOnce(readyWidget)
       .mockResolvedValueOnce(readyWidget);
-    const updateWidget = vi.fn().mockResolvedValue({
+    const titledWidget: AdminWidget = {
       ...readyWidget,
       title: "Homepage carousel",
+    };
+    const publishedWidget: AdminWidget = {
+      ...titledWidget,
       status: "PUBLISHED",
-    });
+      videos: [readyVideo],
+    };
+    const updateWidget = vi
+      .fn()
+      .mockResolvedValueOnce(titledWidget)
+      .mockResolvedValueOnce(publishedWidget);
     const attachWidgetVideo = vi.fn().mockResolvedValue(attachedWidget);
     const detachWidgetVideo = vi.fn().mockResolvedValue({ detached: true });
     const loadVideoLibrary = vi.fn().mockResolvedValue({
@@ -1160,38 +1087,28 @@ describe("admin app shell", () => {
       },
     });
 
-    vi.stubGlobal(
-      "confirm",
-      vi.fn(() => true),
-    );
-
     renderApp(
       <App
         initialDashboardState={readyDashboardState}
-        loadWidgets={loadWidgets}
+        loadWidgets={() => Promise.resolve({ widgets: [readyWidget] })}
         loadWidgetDetail={loadWidgetDetail}
         updateWidget={updateWidget}
         attachWidgetVideo={attachWidgetVideo}
         detachWidgetVideo={detachWidgetVideo}
         loadVideoLibrary={loadVideoLibrary}
       />,
-      ["/widgets"],
+      ["/widgets/widget_1"],
     );
 
     await waitFor(() => {
-      expect(screen.getByText("Homepage videos")).toBeInTheDocument();
-    });
-
-    fireEvent.click(screen.getByRole("button", { name: "View details" }));
-
-    await waitFor(() => {
-      expect(screen.getByText("Widget details")).toBeInTheDocument();
+      expect(screen.getByText("Widget setup")).toBeInTheDocument();
     });
     expect(loadWidgetDetail).toHaveBeenCalledWith("widget_1");
     expect(loadVideoLibrary).toHaveBeenCalledWith({
       first: 50,
       source: "MANUAL_UPLOAD",
     });
+    expect(screen.getByText("Recommended: use the theme app embed")).toBeInTheDocument();
     expect(screen.getByLabelText("Widget embed snippet").textContent).toContain(
       "http://localhost:3000/widget.js",
     );
@@ -1199,20 +1116,14 @@ describe("admin app shell", () => {
       'data-shop="test-shop.myshopify.com"',
     );
 
-    const widgetTitleInputs = screen.getAllByLabelText("Widget title");
-
-    fireEvent.change(widgetTitleInputs[1]!, {
+    fireEvent.change(screen.getByLabelText("Widget title"), {
       target: { value: "Homepage carousel" },
     });
-    fireEvent.change(screen.getByLabelText("Widget status"), {
-      target: { value: "PUBLISHED" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Save widget" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save title" }));
 
     await waitFor(() => {
       expect(updateWidget).toHaveBeenCalledWith("widget_1", {
         title: "Homepage carousel",
-        status: "PUBLISHED",
       });
     });
 
@@ -1226,7 +1137,24 @@ describe("admin app shell", () => {
       "true",
     );
 
+    fireEvent.click(screen.getByRole("button", { name: "Publish" }));
+
+    await waitFor(() => {
+      expect(updateWidget).toHaveBeenCalledWith("widget_1", {
+        status: "PUBLISHED",
+      });
+    });
+
     fireEvent.click(screen.getByRole("button", { name: "Detach" }));
+    expect(screen.getByText("Detach video?")).toBeInTheDocument();
+    const detachButtons = screen.getAllByRole("button", { name: "Detach" });
+    const modalDetachButton = detachButtons[detachButtons.length - 1];
+
+    if (!modalDetachButton) {
+      throw new Error("Expected modal detach button");
+    }
+
+    fireEvent.click(modalDetachButton);
 
     await waitFor(() => {
       expect(detachWidgetVideo).toHaveBeenCalledWith("widget_1", "video_1");
@@ -1257,14 +1185,8 @@ describe("admin app shell", () => {
           })
         }
       />,
-      ["/widgets"],
+      ["/widgets/widget_1"],
     );
-
-    await waitFor(() => {
-      expect(screen.getByText("Homepage videos")).toBeInTheDocument();
-    });
-
-    fireEvent.click(screen.getByRole("button", { name: "View details" }));
 
     await waitFor(() => {
       expect(screen.getByText("Uploaded videos not ready yet")).toBeInTheDocument();

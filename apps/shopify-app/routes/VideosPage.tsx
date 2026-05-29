@@ -15,7 +15,6 @@ import {
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 
 import {
-  fetchAdminProductSearch,
   PRODUCT_SEARCH_SAFE_ERROR_MESSAGE,
   type ProductSearchClient,
   type ProductSearchProduct,
@@ -24,13 +23,11 @@ import {
 } from "../services/product-search";
 import {
   archiveAdminVideo,
-  fetchAdminVideoDetail,
   fetchAdminVideoLibrary,
   formatVideoDuration,
   retryAdminVideoProcessing,
   VIDEO_LIBRARY_SAFE_ERROR_MESSAGE,
   type VideoArchiveClient,
-  type VideoDetailClient,
   type VideoLibraryClient,
   type VideoLibraryItem,
   type VideoLibraryResult,
@@ -39,9 +36,6 @@ import {
   type VideoRetryProcessingClient,
 } from "../services/video-library";
 import {
-  createVideoProductTag as createAdminVideoProductTag,
-  deleteVideoProductTag as deleteAdminVideoProductTag,
-  fetchVideoProductTags,
   VIDEO_PRODUCT_TAGS_SAFE_ERROR_MESSAGE,
   type CreateVideoProductTagClient,
   type DeleteVideoProductTagClient,
@@ -62,13 +56,8 @@ import {
 type VideosPageProps = {
   uploadVideo?: VideoUploadClient;
   loadVideoLibrary?: VideoLibraryClient;
-  loadVideoDetail?: VideoDetailClient;
   archiveVideo?: VideoArchiveClient;
   retryVideoProcessing?: VideoRetryProcessingClient;
-  searchProducts?: ProductSearchClient;
-  loadVideoProductTags?: VideoProductTagsClient;
-  createVideoProductTag?: CreateVideoProductTagClient;
-  deleteVideoProductTag?: DeleteVideoProductTagClient;
 };
 
 type UploadState =
@@ -96,13 +85,8 @@ const EMPTY_VIDEO_LIBRARY_RESULT: VideoLibraryResult = {
 export function VideosPage({
   uploadVideo = uploadManualVideo,
   loadVideoLibrary = fetchAdminVideoLibrary,
-  loadVideoDetail = fetchAdminVideoDetail,
   archiveVideo = archiveAdminVideo,
   retryVideoProcessing = retryAdminVideoProcessing,
-  searchProducts = fetchAdminProductSearch,
-  loadVideoProductTags = fetchVideoProductTags,
-  createVideoProductTag = createAdminVideoProductTag,
-  deleteVideoProductTag = deleteAdminVideoProductTag,
 }: VideosPageProps) {
   const fileInputId = useId();
   const statusFilterId = useId();
@@ -117,12 +101,10 @@ export function VideosPage({
     status: "loading",
     result: null,
   });
-  const [selectedVideo, setSelectedVideo] = useState<VideoLibraryItem | null>(null);
-  const [detailLoadingId, setDetailLoadingId] = useState<string | null>(null);
   const [archiveLoadingId, setArchiveLoadingId] = useState<string | null>(null);
   const [retryLoadingId, setRetryLoadingId] = useState<string | null>(null);
+  const [videoPendingArchive, setVideoPendingArchive] = useState<VideoLibraryItem | null>(null);
   const latestLibraryRequestIdRef = useRef(0);
-  const latestDetailRequestIdRef = useRef(0);
   const isUploading =
     uploadState.status === "creating-intent" ||
     uploadState.status === "uploading" ||
@@ -255,50 +237,10 @@ export function VideosPage({
     setUploadState({ status: "idle" });
   }
 
-  async function handleLoadVideoDetail(video: VideoLibraryItem) {
-    const videoId = video.id;
-    const requestId = latestDetailRequestIdRef.current + 1;
-
-    latestDetailRequestIdRef.current = requestId;
-    setSelectedVideo(video);
-
-    try {
-      setDetailLoadingId(videoId);
-      const detailedVideo = await loadVideoDetail(videoId);
-
-      if (latestDetailRequestIdRef.current !== requestId) {
-        return;
-      }
-
-      replaceLibraryVideo(detailedVideo);
-    } catch {
-      if (latestDetailRequestIdRef.current !== requestId) {
-        return;
-      }
-
-      setLibraryState((currentState) => ({
-        status: "error",
-        result: currentState.result,
-        message: VIDEO_LIBRARY_SAFE_ERROR_MESSAGE,
-      }));
-    } finally {
-      if (latestDetailRequestIdRef.current === requestId) {
-        setDetailLoadingId(null);
-      }
-    }
-  }
-
   async function handleArchiveVideo(video: VideoLibraryItem) {
-    if (!window.confirm(`Archive ${video.originalFilename}?`)) {
-      return;
-    }
-
     try {
       setArchiveLoadingId(video.id);
       const archivedVideo = await archiveVideo(video.id);
-      setSelectedVideo((currentVideo) =>
-        currentVideo?.id === archivedVideo.id ? archivedVideo : currentVideo,
-      );
       setLibraryState((currentState) => {
         const currentResult = currentState.result ?? EMPTY_VIDEO_LIBRARY_RESULT;
 
@@ -312,6 +254,7 @@ export function VideosPage({
           },
         };
       });
+      setVideoPendingArchive(null);
     } catch {
       setLibraryState((currentState) => ({
         status: "error",
@@ -341,7 +284,6 @@ export function VideosPage({
   }
 
   function replaceLibraryVideo(video: VideoLibraryItem) {
-    setSelectedVideo((currentVideo) => (currentVideo?.id === video.id ? video : currentVideo));
     setLibraryState((currentState) => {
       const currentResult = currentState.result ?? EMPTY_VIDEO_LIBRARY_RESULT;
 
@@ -560,18 +502,10 @@ export function VideosPage({
               <VideoLibraryCard
                 key={video.id}
                 video={video}
-                isSelected={selectedVideo?.id === video.id}
-                selectedVideo={selectedVideo?.id === video.id ? selectedVideo : null}
-                isLoadingDetail={detailLoadingId === video.id}
                 isArchiving={archiveLoadingId === video.id}
                 isRetrying={retryLoadingId === video.id}
-                onViewDetails={() => void handleLoadVideoDetail(video)}
-                onArchive={() => void handleArchiveVideo(video)}
+                onArchive={() => setVideoPendingArchive(video)}
                 onRetryProcessing={() => void handleRetryVideoProcessing(video)}
-                searchProducts={searchProducts}
-                loadVideoProductTags={loadVideoProductTags}
-                createVideoProductTag={createVideoProductTag}
-                deleteVideoProductTag={deleteVideoProductTag}
               />
             ))}
             <InlineStack align="center">
@@ -590,6 +524,39 @@ export function VideosPage({
             </InlineStack>
           </BlockStack>
         ) : null}
+        <Modal
+          open={videoPendingArchive !== null}
+          onClose={() => {
+            if (archiveLoadingId === null) {
+              setVideoPendingArchive(null);
+            }
+          }}
+          title="Archive video?"
+          primaryAction={{
+            content: "Archive",
+            destructive: true,
+            loading: videoPendingArchive !== null && archiveLoadingId === videoPendingArchive.id,
+            onAction: () => {
+              if (videoPendingArchive) {
+                void handleArchiveVideo(videoPendingArchive);
+              }
+            },
+          }}
+          secondaryActions={[
+            {
+              content: "Cancel",
+              disabled: archiveLoadingId !== null,
+              onAction: () => setVideoPendingArchive(null),
+            },
+          ]}
+        >
+          <Modal.Section>
+            <Text as="p">
+              Archive {videoPendingArchive?.originalFilename ?? "this video"}? Archived videos are
+              removed from active widget setup and cannot be attached to storefront widgets.
+            </Text>
+          </Modal.Section>
+        </Modal>
       </BlockStack>
     </Page>
   );
@@ -629,34 +596,17 @@ function toUploadSuccessMessage(video: UploadedVideo): string {
 
 function VideoLibraryCard({
   video,
-  isSelected,
-  selectedVideo,
-  isLoadingDetail,
   isArchiving,
   isRetrying,
-  onViewDetails,
   onArchive,
   onRetryProcessing,
-  searchProducts,
-  loadVideoProductTags,
-  createVideoProductTag,
-  deleteVideoProductTag,
 }: {
   video: VideoLibraryItem;
-  isSelected: boolean;
-  selectedVideo: VideoLibraryItem | null;
-  isLoadingDetail: boolean;
   isArchiving: boolean;
   isRetrying: boolean;
-  onViewDetails: () => void;
   onArchive: () => void;
   onRetryProcessing: () => void;
-  searchProducts: ProductSearchClient;
-  loadVideoProductTags: VideoProductTagsClient;
-  createVideoProductTag: CreateVideoProductTagClient;
-  deleteVideoProductTag: DeleteVideoProductTagClient;
 }) {
-  const displayedVideo = selectedVideo ?? video;
   const canRetryProcessing =
     video.source === "MANUAL_UPLOAD" && (video.status === "UPLOADED" || video.status === "FAILED");
 
@@ -696,36 +646,9 @@ function VideoLibraryCard({
           </Text>
         </BlockStack>
 
-        {isSelected ? (
-          <BlockStack gap="100">
-            <Text as="h4" variant="headingSm">
-              Video details
-            </Text>
-            <Text as="p">ID: {displayedVideo.id}</Text>
-            <Text as="p">Status: {displayedVideo.status}</Text>
-            <Text as="p">Source: {displayedVideo.source}</Text>
-            <Text as="p">Duration: {formatVideoDuration(displayedVideo.durationMs)}</Text>
-            <Text as="p">Dimensions: {formatVideoDimensions(displayedVideo)}</Text>
-            {canShowProductTagging(displayedVideo.status) ? (
-              <VideoProductTaggingPanel
-                key={displayedVideo.id}
-                video={displayedVideo}
-                searchProducts={searchProducts}
-                loadVideoProductTags={loadVideoProductTags}
-                createVideoProductTag={createVideoProductTag}
-                deleteVideoProductTag={deleteVideoProductTag}
-              />
-            ) : (
-              <Banner tone="info" title="Video not ready for product tags">
-                {toVideoReadinessMessage(displayedVideo.status)}
-              </Banner>
-            )}
-          </BlockStack>
-        ) : null}
-
         <InlineStack gap="300">
-          <Button onClick={onViewDetails} loading={isLoadingDetail}>
-            {isSelected ? "Refresh details" : "View details"}
+          <Button url={`/videos/${video.id}`}>
+            View details
           </Button>
           <Button
             tone="critical"
@@ -746,11 +669,11 @@ function VideoLibraryCard({
   );
 }
 
-function canShowProductTagging(status: VideoLibraryStatus): boolean {
+export function canShowProductTagging(status: VideoLibraryStatus): boolean {
   return status === "READY" || status === "ARCHIVED";
 }
 
-function toVideoReadinessMessage(status: VideoLibraryStatus): string {
+export function toVideoReadinessMessage(status: VideoLibraryStatus): string {
   if (status === "READY") {
     return "Ready videos can be tagged and attached to widgets.";
   }
@@ -781,7 +704,7 @@ type TagProductSearchState =
   | { status: "ready"; result: ProductSearchResult; message?: undefined }
   | { status: "error"; result: ProductSearchResult | null; message: string };
 
-function VideoProductTaggingPanel({
+export function VideoProductTaggingPanel({
   video,
   searchProducts,
   loadVideoProductTags,
@@ -1204,7 +1127,7 @@ function isVariantAlreadyTagged(tags: VideoProductTag[], variantId: string): boo
   return tags.some((tag) => tag.variantId === variantId);
 }
 
-function toVideoStatusTone(
+export function toVideoStatusTone(
   status: VideoLibraryStatus,
 ): "success" | "info" | "warning" | "critical" {
   if (status === "READY") {
@@ -1222,7 +1145,7 @@ function toVideoStatusTone(
   return "info";
 }
 
-function formatVideoDimensions(video: Pick<VideoLibraryItem, "width" | "height">): string {
+export function formatVideoDimensions(video: Pick<VideoLibraryItem, "width" | "height">): string {
   if (video.width === null || video.height === null) {
     return "Unknown dimensions";
   }
@@ -1230,6 +1153,6 @@ function formatVideoDimensions(video: Pick<VideoLibraryItem, "width" | "height">
   return `${video.width} x ${video.height}`;
 }
 
-function formatVideoDate(value: string): string {
+export function formatVideoDate(value: string): string {
   return new Date(value).toLocaleString();
 }
